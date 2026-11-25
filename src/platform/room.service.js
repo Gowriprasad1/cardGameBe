@@ -10,6 +10,9 @@ const { generateRoomCode } = require('../utils/ids');
 const GUEST_RETENTION_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Points at which a player is out. The host chooses one when creating the room. */
+const ELIMINATION_CHOICES = Object.freeze([101, 201, 301]);
+const DEFAULT_ELIMINATION = 201;
 const MAX_PLAYERS = 5;
 const MIN_PLAYERS = 2;
 
@@ -54,6 +57,7 @@ class RoomService {
       status: room.status,
       playerCount: room.players.length,
       maxPlayers: room.maxPlayers,
+      eliminationPoints: this.#points(room),
       joinable: room.status === 'waiting' && room.players.length < room.maxPlayers,
     };
   }
@@ -67,6 +71,7 @@ class RoomService {
       sessionId: room.sessionId || null,
       minPlayers: MIN_PLAYERS,
       maxPlayers: room.maxPlayers,
+      eliminationPoints: this.#points(room),
       playerCount: room.players.length,
       players: room.players
         .slice()
@@ -84,8 +89,12 @@ class RoomService {
 
   // ---- commands ------------------------------------------------------------
 
-  createRoom(user, gameType = 'SET') {
+  createRoom(user, gameType = 'SET', { eliminationPoints = DEFAULT_ELIMINATION } = {}) {
     this.registry.get(gameType);
+    if (!ELIMINATION_CHOICES.includes(eliminationPoints)) {
+      return Promise.reject(appError('VALIDATION_FAILED', { field: 'points', reason: `must be one of ${ELIMINATION_CHOICES.join(', ')}` }));
+    }
+    const config = { eliminationThreshold: eliminationPoints };
     return this.queue.run(`user:${user.id}`, async () => {
       this.#assertFree(user.id);
       for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -94,10 +103,10 @@ class RoomService {
         try {
           const room = await this.db.withTransaction(async (tx) => {
             const gameTypeId = await roomsRepo.getGameTypeId(tx, gameType);
-            const roomId = await roomsRepo.insertRoom(tx, { roomCode: code, gameTypeId, hostUserId: user.id, maxPlayers: MAX_PLAYERS });
+            const roomId = await roomsRepo.insertRoom(tx, { roomCode: code, gameTypeId, hostUserId: user.id, maxPlayers: MAX_PLAYERS, config });
             const roomPlayerId = await roomsRepo.insertRoomPlayer(tx, { roomId, userId: user.id, seatNo: 0 });
             return {
-              id: roomId, code, gameType, hostUserId: user.id, status: 'waiting', maxPlayers: MAX_PLAYERS, sessionId: null,
+              id: roomId, code, gameType, hostUserId: user.id, status: 'waiting', maxPlayers: MAX_PLAYERS, sessionId: null, config,
               lastActivityAt: Date.now(),
               players: [{ userId: user.id, nickname: user.nickname, seat: 0, roomPlayerId, status: 'active' }],
             };
@@ -202,6 +211,10 @@ class RoomService {
     });
   }
 
+  #points(room) {
+    return (room.config && room.config.eliminationThreshold) || DEFAULT_ELIMINATION;
+  }
+
   /** Everything a (re)connecting client needs to redraw. */
   resume(user, rawCode) {
     const code = this.userRoom.get(user.id);
@@ -259,6 +272,7 @@ class RoomService {
         status: row.status,
         maxPlayers: row.max_players,
         sessionId: null,
+        config: row.config || {},
         lastActivityAt: Date.now(),
         players: row.players.map((p) => ({
           userId: p.user_id, nickname: p.nickname, seat: p.seat_no, roomPlayerId: p.id, status: p.status,
@@ -356,4 +370,4 @@ class RoomService {
   }
 }
 
-module.exports = { RoomService, MAX_PLAYERS, MIN_PLAYERS };
+module.exports = { RoomService, MAX_PLAYERS, MIN_PLAYERS, ELIMINATION_CHOICES, DEFAULT_ELIMINATION };

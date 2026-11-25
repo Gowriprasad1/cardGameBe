@@ -51,7 +51,12 @@ class GameSessionService {
       .map((p) => ({ id: p.userId, nickname: p.nickname }));
     const { state, events } = module.createGame({
       players,
-      config: { turnTimerSeconds: this.env.turnTimerSeconds, reconnectGraceSeconds: this.env.reconnectGraceSeconds },
+      config: {
+        turnTimerSeconds: this.env.turnTimerSeconds,
+        reconnectGraceSeconds: this.env.reconnectGraceSeconds,
+        // what the host chose when creating the room (e.g. points at which a player is out)
+        ...(room.config || {}),
+      },
     });
     const { sessionId, startedAt } = await this.persistence.startGame({ room, state });
     room.sessionId = sessionId;

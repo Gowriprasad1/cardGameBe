@@ -5,11 +5,11 @@ async function getGameTypeId(db, code) {
   return rows[0] ? rows[0].id : null;
 }
 
-async function insertRoom(db, { roomCode, gameTypeId, hostUserId, maxPlayers }) {
+async function insertRoom(db, { roomCode, gameTypeId, hostUserId, maxPlayers, config = {} }) {
   const { rows } = await db.query(
-    `INSERT INTO game_rooms (room_code, game_type_id, host_user_id, max_players)
-     VALUES ($1, $2, $3, $4) RETURNING id`,
-    [roomCode, gameTypeId, hostUserId, maxPlayers],
+    `INSERT INTO game_rooms (room_code, game_type_id, host_user_id, max_players, config)
+     VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id`,
+    [roomCode, gameTypeId, hostUserId, maxPlayers, JSON.stringify(config)],
   );
   return rows[0].id;
 }
@@ -50,7 +50,7 @@ async function setConnected(db, { roomPlayerId, isConnected }) {
  */
 async function loadOpenRooms(db) {
   const rooms = (await db.query(
-    `SELECT r.id, r.room_code, r.host_user_id, r.status, r.max_players, g.code AS game_type
+    `SELECT r.id, r.room_code, r.host_user_id, r.status, r.max_players, r.config, g.code AS game_type
        FROM game_rooms r JOIN game_types g ON g.id = r.game_type_id
       WHERE r.status IN ('waiting', 'in_progress') ORDER BY r.created_at`,
   )).rows;

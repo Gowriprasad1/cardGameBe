@@ -318,6 +318,55 @@ test('reaching 201 ends the game: winner, history, room finished, nothing double
   assert.equal((await b.client.emit('create-room', {})).ok, true);
 });
 
+test('the limit chosen for the room decides who is out (101 vs the default 201)', async () => {
+  const playWith = async (points) => {
+    const a = await srv.player(nick('Lim A'));
+    const b = await srv.player(nick('Lim B'));
+    const { roomCode } = (await a.client.emit('create-room', points ? { points } : {})).data;
+    await b.client.emit('join-room', { roomCode });
+    await a.client.emit('start-game', {});
+    await a.client.waitFor('game-state');
+    await b.client.waitFor('game-state');
+    const live = srv.container.gameSessions.live.get(roomCode);
+    const dropper = current([a, b]);
+    live.state.players[dropper.userId].score = 85; // a first drop adds 20: 105
+    await dropper.client.emit('player-drop', { requestId: rid() });
+    await a.client.waitFor('round-completed');
+    return { live, dropper };
+  };
+  const strict = await playWith(101);
+  assert.equal(strict.live.state.players[strict.dropper.userId].status, 'eliminated', '105 is over 101');
+  assert.equal(strict.live.state.stage, 'completed');
+  const normal = await playWith(null);
+  assert.equal(normal.live.state.players[normal.dropper.userId].status, 'active', '105 is below 201');
+  assert.equal(normal.live.state.stage, 'between-rounds');
+});
+
+test('the chosen limit survives a server restart', async () => {
+  const first = await startTestServer();
+  try {
+    const a = await first.player(nick('Lim R1'));
+    const b = await first.player(nick('Lim R2'));
+    const { roomCode } = (await a.client.emit('create-room', { points: 301 })).data;
+    await b.client.emit('join-room', { roomCode });
+    await a.client.emit('start-game', {});
+    await a.client.waitFor('game-state');
+    await first.stop({ keepDb: true });
+    const second = await startTestServer({ db: first.db });
+    try {
+      const ca = await second.connect(a.token);
+      const resumed = await ca.emit('resume', { roomCode });
+      assert.equal(resumed.data.room.eliminationPoints, 301);
+      assert.equal(resumed.data.view.config.eliminationThreshold, 301);
+    } finally {
+      await second.stop();
+    }
+  } catch (err) {
+    await first.stop().catch(() => {});
+    throw err;
+  }
+});
+
 test('eliminated players are spectators: no cards, cannot act, cannot be dealt into the next round', async () => {
   const { players, roomCode, live } = await startRoom(3);
   const [a, b, c] = players;

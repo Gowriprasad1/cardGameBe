@@ -13,6 +13,8 @@ module.exports = {
   },
   createRoom: {
     gameType: { type: 'enum', values: ['SET'], default: 'SET' },
+    // points at which a player is out; the host picks one when creating the room
+    points: { type: 'enum', values: [101, 201, 301], default: 201 },
   },
   joinRoom: { roomCode },
   resume: { roomCode: { ...roomCode, optional: true } },

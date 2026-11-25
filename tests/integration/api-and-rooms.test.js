@@ -143,7 +143,7 @@ test('create room: unique code, creator is host in seat 0, shown in waiting room
 
   const preview = await srv.api('GET', `/api/rooms/${roomCode}`);
   assert.deepEqual(preview.json.data, {
-    roomCode, gameType: 'SET', status: 'waiting', playerCount: 1, maxPlayers: 5, joinable: true,
+    roomCode, gameType: 'SET', status: 'waiting', playerCount: 1, maxPlayers: 5, eliminationPoints: 201, joinable: true,
   });
   const me = await srv.api('GET', '/api/me', { token: host.token });
   assert.equal(me.json.data.activeRoomCode, roomCode);
@@ -311,4 +311,35 @@ test('stale guests who never played are removed; guests with a seat are kept', a
   assert.ok(removed >= 1);
   const left = (await srv.db.query('SELECT id FROM users WHERE id = ANY($1::uuid[])', [[lonely.userId, host.userId]])).rows.map((r) => r.id);
   assert.deepEqual(left, [host.userId]);
+});
+
+test('the host chooses the points at which a player is out: 101, 201 (default) or 301', async () => {
+  const make = async (nick, payload) => {
+    const p = await srv.player(nick);
+    return { p, res: await p.client.emit('create-room', payload) };
+  };
+  const standard = await make('Pts Default', {});
+  assert.equal(standard.res.data.room.eliminationPoints, 201);
+  assert.equal((await srv.api('GET', `/api/rooms/${standard.res.data.roomCode}`)).json.data.eliminationPoints, 201);
+
+  for (const points of [101, 201, 301]) {
+    const { p, res } = await make(`Pts ${points}`, { points });
+    assert.equal(res.ok, true);
+    assert.equal(res.data.room.eliminationPoints, points);
+    const joiner = await srv.player(`Pts join ${points}`);
+    const joined = await joiner.client.emit('join-room', { roomCode: res.data.roomCode });
+    assert.equal(joined.data.room.eliminationPoints, points, 'everyone who joins sees the same limit');
+    await p.client.emit('start-game', {});
+    const state = await joiner.client.waitFor('game-state');
+    assert.equal(state.payload.config.eliminationThreshold, points, 'the game really uses it');
+    const row = (await srv.db.query('SELECT config FROM game_rooms WHERE room_code = $1', [res.data.roomCode])).rows[0];
+    assert.equal(row.config.eliminationThreshold, points, 'and it is saved with the room');
+  }
+
+  for (const bad of [150, 0, 1000, '201', true]) {
+    const { res } = await make(`Pts bad ${String(bad)}`, { points: bad });
+    assert.equal(res.ok, false, `points ${JSON.stringify(bad)} must be refused`);
+    assert.equal(res.error.code, 'VALIDATION_FAILED');
+    assert.equal(res.error.details.field, 'points');
+  }
 });

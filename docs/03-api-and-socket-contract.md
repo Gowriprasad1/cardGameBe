@@ -17,7 +17,7 @@ No payload ever contains another player's cards, the draw pile contents or the f
 | GET | `/api/games` | List available games (`SET`) with player limits. |
 | POST | `/api/guests` | Create a guest, `{ nickname }` (2 to 30 letters, digits, space, `_ . ' -`) → `201 { userId, nickname, token }`. |
 | GET | `/api/me` | Bearer token → `{ userId, nickname, activeRoomCode }`. Lets a returning client know whether to `resume`. |
-| GET | `/api/rooms/:code` | Public room preview `{ roomCode, gameType, status, playerCount, maxPlayers, joinable }`. 404 `ROOM_NOT_FOUND` for an unknown code. |
+| GET | `/api/rooms/:code` | Public room preview `{ roomCode, gameType, status, playerCount, maxPlayers, eliminationPoints, joinable }`. 404 `ROOM_NOT_FOUND` for an unknown code. |
 | GET | `/api/sessions/:id/history` | Round-by-round scores `{ rounds: [{ roundNo, endReason, scores: [...] }] }`. Bearer token of a participant only. `sessionId` is in the room payload. |
 
 Success bodies are `{ "ok": true, "data": ... }`. Errors use one shape:
@@ -47,7 +47,7 @@ Game error codes (from the engine): `NOT_YOUR_TURN`, `ALREADY_DRAWN`, `MUST_DRAW
 
 | Event | Payload | Rules checked |
 |---|---|---|
-| `create-room` | `{ gameType: "SET" }` | Authenticated. Creates room, creator is host and seat 0. Returns `{ roomCode, room }`. |
+| `create-room` | `{ gameType: "SET", points?: 101 \| 201 \| 301 }` | Authenticated. Creates room, creator is host and seat 0. `points` is the score at which a player is out (default 201, any other value is refused with `VALIDATION_FAILED`). It is saved with the room and fixed for the whole game. Returns `{ roomCode, room }`. |
 | `join-room` | `{ roomCode }` | Room exists, status `waiting`, not full, user not already in room (rejoin handled separately), user not eliminated in an active game. |
 | `leave-room` | `{}` | Only in `waiting`. Host leaving transfers host or closes room. |
 | `start-game` | `{}` | Host only, 2–5 players, room `waiting`. Freezes the player list. |

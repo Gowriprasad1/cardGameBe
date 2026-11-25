@@ -91,8 +91,8 @@ function attachSocket(httpServer, container) {
     const game = (action, requestId) => gameSessions.perform(currentRoom(), user.id, action, requestId);
 
     // ---- room ----
-    on('create-room', schemas.createRoom, async ({ gameType }) => {
-      const result = await rooms.createRoom(user, gameType);
+    on('create-room', schemas.createRoom, async ({ gameType, points }) => {
+      const result = await rooms.createRoom(user, gameType, { eliminationPoints: points });
       socket.join(`room:${result.roomCode}`);
       return result;
     });

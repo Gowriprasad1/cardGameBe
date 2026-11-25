@@ -103,7 +103,7 @@ All amounts are computed by the backend and added to the cumulative score.
 
 ## 7. Elimination and game end
 
-- When cumulative score is **≥ 201** (`eliminationThreshold: 201`) the player is `ELIMINATED`. History is kept.
+- When cumulative score reaches or exceeds the room's limit the player is `ELIMINATED`. **The host chooses the limit when creating the room: 101, 201 (standard, default) or 301** (`eliminationThreshold`). It cannot change once the room exists. History is kept.
 - Eliminated players stay in the room as spectators, see no cards, and cannot rejoin active rounds.
 - The game ends when exactly one non-eliminated player remains. That player is the winner.
 - If several players pass 201 in the same round and none remain, the player with the lowest cumulative score is declared winner (`tieBreak: "lowest-score"`).
