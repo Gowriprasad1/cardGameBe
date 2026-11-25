@@ -11,7 +11,7 @@ const EVENT_FOR = {
 };
 
 /** Make a client play like `bot` until the game is over. */
-function attachBot(client, bot) {
+function attachBot(client, bot, decide = decideFromView) {
   let acting = false;
   let pending = null;
   let readyForRound = 0;
@@ -25,7 +25,7 @@ function attachBot(client, bot) {
     }
     let guard = 0;
     while (v.stage === 'in-round' && v.me && v.me.isMyTurn && guard++ < 6) {
-      const action = decideFromView(v, bot);
+      const action = decide(v, bot);
       const [event, pick] = EVENT_FOR[action.type];
       const res = await client.emit(event, { ...pick(action), requestId: rid() });
       if (!res.ok) throw new Error(`${event} refused: ${JSON.stringify(res.error)}`);

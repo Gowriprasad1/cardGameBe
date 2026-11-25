@@ -10,7 +10,10 @@
  */
 
 const { resolveConfig } = require('../../src/games/set/set.config');
-const { createGame, applyAction } = require('../../src/games/set/game-engine');
+const setModule = require('../../src/games/set');
+const rummyModule = require('../../src/games/rummy');
+
+const MODULES = { SET: setModule, RUMMY: rummyModule };
 
 const CARD_RE = /^(A|[2-9]|10|J|Q|K)([HDCS])(?:\/([12]))?$/;
 const JOKER_RE = /^JK([12])(?:\/([12]))?$/;
@@ -104,9 +107,21 @@ function rigHands(state, hands) {
     }
     for (const c of wanted) {
       if (wantedAll.has(c.id)) throw new Error(`card ${c.id} requested twice`);
-      if (c.id === round.openJokerCard.id) throw new Error(`card ${c.id} is the open joker card`);
       wantedAll.add(c.id);
     }
+  }
+  // If the face-up joker card is one we want, swap it for another card of the same rank first.
+  if (wantedAll.has(round.openJokerCard.id)) {
+    const rank = round.openJokerCard.rank;
+    const zones = [round.drawPile, round.discardPile, ...Object.values(round.hands)];
+    for (const zone of zones) {
+      const index = zone.findIndex((c) => c.rank === rank && !c.joker && !wantedAll.has(c.id));
+      if (index !== -1) {
+        [zone[index], round.openJokerCard] = [round.openJokerCard, zone[index]];
+        break;
+      }
+    }
+    if (wantedAll.has(round.openJokerCard.id)) throw new Error(`card ${round.openJokerCard.id} is the open joker card`);
   }
   for (const [playerId, str] of Object.entries(hands)) {
     const hand = round.hands[playerId];
@@ -144,8 +159,8 @@ function setDiscardTop(state, token) {
  * Start an n-player game with deterministic randomness and optional rigging.
  * @returns {object} engine state
  */
-function scenario({ n = 3, seed = 7, config = {}, openJoker = 'A', hands = {}, current } = {}) {
-  const { state } = createGame({ players: playersOf(n), config, rng: seededRng(seed) });
+function scenario({ n = 3, seed = 7, config = {}, openJoker = 'A', hands = {}, current, game = 'SET' } = {}) {
+  const { state } = MODULES[game].createGame({ players: playersOf(n), config, rng: seededRng(seed) });
   const s = structuredClone(state);
   setOpenJoker(s, openJoker);
   rigHands(s, hands);
@@ -155,7 +170,7 @@ function scenario({ n = 3, seed = 7, config = {}, openJoker = 'A', hands = {}, c
 
 /** Apply an action and return only the new state (events via the second return). */
 function act(state, action, rng = seededRng(99)) {
-  return applyAction(state, action, { rng });
+  return MODULES[state.game || 'SET'].applyAction(state, action, { rng });
 }
 
 /** Draw (from the closed pile) then discard `cardId`, ending the turn. */

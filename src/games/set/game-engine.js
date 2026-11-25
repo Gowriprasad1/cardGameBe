@@ -20,18 +20,14 @@ const {
   PHASE, STAGE, PLAYER_STATUS, ROUND_STATUS, END_REASON, PENALTY_REASON,
 } = require('./constants');
 const { gameError } = require('./errors');
-const { resolveConfig } = require('./set.config');
 const { deckCountForPlayers, buildDecks, verifyCardSet } = require('./deck.service');
 const { shuffle, secureRandomInt } = require('./shuffle.service');
 const { pickInitialDealer, nextDealer, firstToPlay } = require('./dealer.service');
 const { dealRound } = require('./card-distribution.service');
 const { jokerType } = require('./joker.service');
-const { validateDeclaration } = require('./declaration.service');
-const { scoreHand, dropPenalty, invalidDeclarationPenalty } = require('./scoring.service');
 const {
   eligibleIds, findNewlyEliminated, markEliminated, resolveGameEnd,
 } = require('./elimination.service');
-const { checkOneCardToWin } = require('./one-card-to-win.service');
 const {
   assertPlayerInRound, assertActivePlayer, assertPhase, nextPlaying, playingIds,
 } = require('./turn.service');
@@ -114,495 +110,514 @@ function chargePenalty(round, playerId, reason, penalty, extra = {}) {
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// creating a game and starting rounds
-// ---------------------------------------------------------------------------
-
 /**
- * @param {{players: {id: string, nickname?: string}[], config?: object, rng?: Function}} args
- *   players in seat order
+ * Build a draw-and-discard game engine for a ruleset.
+ *
+ * `rules` supplies everything game specific:
+ *   code, resolveConfig(overrides), validateDeclaration({hand, groups, ctx}),
+ *   scoreHand(hand, ctx), dropPenalty(turnsTaken, config),
+ *   invalidDeclarationPenalty(config), checkOneCardToWin(hand, ctx, deckCount)
+ * The turn flow, rounds, dealing, drops, timeouts, penalties, elimination and
+ * card-integrity checks are shared by every game.
  */
-function createGame({ players, config = {}, rng = secureRandomInt }) {
-  const cfg = resolveConfig(config);
-  if (!Array.isArray(players) || players.length < cfg.minPlayers || players.length > cfg.maxPlayers) {
-    throw gameError('INVALID_PLAYER_COUNT');
-  }
-  const ids = players.map((p) => p.id);
-  if (new Set(ids).size !== ids.length) throw gameError('DUPLICATE_PLAYER');
+function createEngine(rules) {
+  // ---------------------------------------------------------------------------
+  // creating a game and starting rounds
+  // ---------------------------------------------------------------------------
 
-  const state = {
-    version: 0,
-    stage: STAGE.BETWEEN_ROUNDS,
-    config: cfg,
-    deckCount: deckCountForPlayers(ids.length),
-    seatOrder: ids,
-    players: {},
-    roundNo: 0,
-    round: null,
-    history: [],
-    winnerId: null,
-  };
-  for (const p of players) {
-    state.players[p.id] = {
-      id: p.id,
-      nickname: p.nickname || p.id,
-      score: 0,
-      status: PLAYER_STATUS.ACTIVE,
-      drops: 0,
-      eliminatedInRound: null,
+  /**
+   * @param {{players: {id: string, nickname?: string}[], config?: object, rng?: Function}} args
+   *   players in seat order
+   */
+  function createGame({ players, config = {}, rng = secureRandomInt }) {
+    const cfg = rules.resolveConfig(config);
+    if (!Array.isArray(players) || players.length < cfg.minPlayers || players.length > cfg.maxPlayers) {
+      throw gameError('INVALID_PLAYER_COUNT');
+    }
+    const ids = players.map((p) => p.id);
+    if (new Set(ids).size !== ids.length) throw gameError('DUPLICATE_PLAYER');
+
+    const state = {
+      version: 0,
+      game: rules.code,
+      stage: STAGE.BETWEEN_ROUNDS,
+      config: cfg,
+      deckCount: deckCountForPlayers(ids.length),
+      seatOrder: ids,
+      players: {},
+      roundNo: 0,
+      round: null,
+      history: [],
+      winnerId: null,
+    };
+    for (const p of players) {
+      state.players[p.id] = {
+        id: p.id,
+        nickname: p.nickname || p.id,
+        score: 0,
+        status: PLAYER_STATUS.ACTIVE,
+        drops: 0,
+        eliminatedInRound: null,
+      };
+    }
+
+    const events = [];
+    emit(events, 'game-started', {
+      players: ids.map((id, seat) => ({ playerId: id, nickname: state.players[id].nickname, seat })),
+      deckCount: state.deckCount,
+      config: publicConfig(cfg),
+    });
+    startRound(state, pickInitialDealer(ids, rng), rng, events);
+    verifyRoundIntegrity(state);
+    return { state, events };
+  }
+
+  function publicConfig(cfg) {
+    return {
+      cardsPerPlayer: cfg.cardsPerPlayer,
+      eliminationThreshold: cfg.eliminationThreshold,
+      firstDropPenalty: cfg.firstDropPenalty,
+      middleDropPenalty: cfg.middleDropPenalty,
+      invalidDeclarationPenalty: cfg.invalidDeclarationPenalty,
+      turnTimerSeconds: cfg.turnTimerSeconds,
     };
   }
 
-  const events = [];
-  emit(events, 'game-started', {
-    players: ids.map((id, seat) => ({ playerId: id, nickname: state.players[id].nickname, seat })),
-    deckCount: state.deckCount,
-    config: publicConfig(cfg),
-  });
-  startRound(state, pickInitialDealer(ids, rng), rng, events);
-  verifyRoundIntegrity(state);
-  return { state, events };
-}
+  function startRound(state, dealerId, rng, events) {
+    const eligible = eligibleIds(state.players, state.seatOrder);
+    state.roundNo += 1;
+    const deal = dealRound({ playerIds: eligible, deckCount: state.deckCount, config: state.config, rng });
+    const firstId = firstToPlay(state.seatOrder, dealerId, eligible);
 
-function publicConfig(cfg) {
-  return {
-    cardsPerPlayer: cfg.cardsPerPlayer,
-    eliminationThreshold: cfg.eliminationThreshold,
-    firstDropPenalty: cfg.firstDropPenalty,
-    middleDropPenalty: cfg.middleDropPenalty,
-    invalidDeclarationPenalty: cfg.invalidDeclarationPenalty,
-    turnTimerSeconds: cfg.turnTimerSeconds,
-  };
-}
+    const round = {
+      no: state.roundNo,
+      dealerId,
+      openJokerRank: deal.openJokerRank,
+      openJokerCard: deal.openJokerCard,
+      drawPile: deal.drawPile,
+      discardPile: deal.discardPile,
+      hands: deal.hands,
+      groups: {},
+      order: eligible,
+      playerStatus: {},
+      turnsTaken: {},
+      timeouts: {},
+      oneCardToWin: {},
+      penalties: {},
+      currentPlayerId: firstId,
+      phase: PHASE.AWAITING_DRAW,
+      turnNo: 1,
+      lastDrawnId: null,
+      result: null,
+    };
+    for (const id of eligible) {
+      round.groups[id] = initialGroups(round.hands[id]);
+      round.playerStatus[id] = ROUND_STATUS.PLAYING;
+      round.turnsTaken[id] = 0;
+      round.timeouts[id] = 0;
+      round.oneCardToWin[id] = false;
+    }
+    state.round = round;
+    state.stage = STAGE.IN_ROUND;
 
-function startRound(state, dealerId, rng, events) {
-  const eligible = eligibleIds(state.players, state.seatOrder);
-  state.roundNo += 1;
-  const deal = dealRound({ playerIds: eligible, deckCount: state.deckCount, config: state.config, rng });
-  const firstId = firstToPlay(state.seatOrder, dealerId, eligible);
-
-  const round = {
-    no: state.roundNo,
-    dealerId,
-    openJokerRank: deal.openJokerRank,
-    openJokerCard: deal.openJokerCard,
-    drawPile: deal.drawPile,
-    discardPile: deal.discardPile,
-    hands: deal.hands,
-    groups: {},
-    order: eligible,
-    playerStatus: {},
-    turnsTaken: {},
-    timeouts: {},
-    oneCardToWin: {},
-    penalties: {},
-    currentPlayerId: firstId,
-    phase: PHASE.AWAITING_DRAW,
-    turnNo: 1,
-    lastDrawnId: null,
-    result: null,
-  };
-  for (const id of eligible) {
-    round.groups[id] = initialGroups(round.hands[id]);
-    round.playerStatus[id] = ROUND_STATUS.PLAYING;
-    round.turnsTaken[id] = 0;
-    round.timeouts[id] = 0;
-    round.oneCardToWin[id] = false;
+    const ctx = ctxOf(state);
+    emit(events, 'dealer-selected', { roundNo: round.no, dealerId });
+    emit(events, 'cards-distributed', {
+      roundNo: round.no,
+      openJokerRank: round.openJokerRank,
+      openJokerCard: toClientCard(round.openJokerCard, ctx),
+      discardTop: toClientCard(round.discardPile[round.discardPile.length - 1], ctx),
+      drawPileCount: round.drawPile.length,
+      handCounts: Object.fromEntries(eligible.map((id) => [id, round.hands[id].length])),
+    });
+    for (const id of eligible) emitHand(state, id, events);
+    emit(events, 'player-turn', {
+      roundNo: round.no, turnNo: round.turnNo, playerId: firstId, seconds: state.config.turnTimerSeconds,
+    });
   }
-  state.round = round;
-  state.stage = STAGE.IN_ROUND;
 
-  const ctx = ctxOf(state);
-  emit(events, 'dealer-selected', { roundNo: round.no, dealerId });
-  emit(events, 'cards-distributed', {
-    roundNo: round.no,
-    openJokerRank: round.openJokerRank,
-    openJokerCard: toClientCard(round.openJokerCard, ctx),
-    discardTop: toClientCard(round.discardPile[round.discardPile.length - 1], ctx),
-    drawPileCount: round.drawPile.length,
-    handCounts: Object.fromEntries(eligible.map((id) => [id, round.hands[id].length])),
-  });
-  for (const id of eligible) emitHand(state, id, events);
-  emit(events, 'player-turn', {
-    roundNo: round.no, turnNo: round.turnNo, playerId: firstId, seconds: state.config.turnTimerSeconds,
-  });
-}
+  // ---------------------------------------------------------------------------
+  // turn actions
+  // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// turn actions
-// ---------------------------------------------------------------------------
-
-function reshuffleIfNeeded(round, config, rng) {
-  if (round.drawPile.length > 0) return;
-  if (!config.reshuffleOnEmpty || round.discardPile.length <= 1) throw gameError('PILE_EMPTY');
-  const top = round.discardPile.pop();
-  round.drawPile = shuffle(round.discardPile, rng);
-  round.discardPile = [top];
-}
-
-function doDraw(state, playerId, source, events, rng, { manual }) {
-  const { round } = state;
-  if (source !== 'draw' && source !== 'discard') throw gameError('INVALID_SOURCE');
-  let card;
-  if (source === 'draw') {
-    reshuffleIfNeeded(round, state.config, rng);
-    card = round.drawPile.pop();
-  } else {
-    if (round.discardPile.length === 0) throw gameError('PILE_EMPTY');
-    // A printed joker thrown on the open pile cannot be picked up. Cards of the open-joker number can.
-    if (round.discardPile[round.discardPile.length - 1].joker) throw gameError('JOKER_NOT_PICKABLE');
-    card = round.discardPile.pop();
+  function reshuffleIfNeeded(round, config, rng) {
+    if (round.drawPile.length > 0) return;
+    if (!config.reshuffleOnEmpty || round.discardPile.length <= 1) throw gameError('PILE_EMPTY');
+    const top = round.discardPile.pop();
+    round.drawPile = shuffle(round.discardPile, rng);
+    round.discardPile = [top];
   }
-  round.hands[playerId].push(card);
-  round.groups[playerId].push([card.id]);
-  round.phase = PHASE.AWAITING_DISCARD;
-  round.lastDrawnId = card.id;
-  if (manual) round.timeouts[playerId] = 0;
 
-  const ctx = ctxOf(state);
-  const top = round.discardPile[round.discardPile.length - 1];
-  emit(events, 'card-drawn', {
-    playerId,
-    source,
-    // Only the discard pile's top card is face-up, so only then is the card public.
-    card: source === 'discard' ? toClientCard(card, ctx) : null,
-    drawPileCount: round.drawPile.length,
-    discardTop: top ? toClientCard(top, ctx) : null,
-  });
-  emitHand(state, playerId, events);
-}
+  function doDraw(state, playerId, source, events, rng, { manual }) {
+    const { round } = state;
+    if (source !== 'draw' && source !== 'discard') throw gameError('INVALID_SOURCE');
+    let card;
+    if (source === 'draw') {
+      reshuffleIfNeeded(round, state.config, rng);
+      card = round.drawPile.pop();
+    } else {
+      if (round.discardPile.length === 0) throw gameError('PILE_EMPTY');
+      // A printed joker thrown on the open pile cannot be picked up. Cards of the open-joker number can.
+      if (round.discardPile[round.discardPile.length - 1].joker) throw gameError('JOKER_NOT_PICKABLE');
+      card = round.discardPile.pop();
+    }
+    round.hands[playerId].push(card);
+    round.groups[playerId].push([card.id]);
+    round.phase = PHASE.AWAITING_DISCARD;
+    round.lastDrawnId = card.id;
+    if (manual) round.timeouts[playerId] = 0;
 
-function removeFromGroups(round, playerId, cardId) {
-  round.groups[playerId] = round.groups[playerId]
-    .map((g) => g.filter((id) => id !== cardId))
-    .filter((g) => g.length > 0);
-}
+    const ctx = ctxOf(state);
+    const top = round.discardPile[round.discardPile.length - 1];
+    emit(events, 'card-drawn', {
+      playerId,
+      source,
+      // Only the discard pile's top card is face-up, so only then is the card public.
+      card: source === 'discard' ? toClientCard(card, ctx) : null,
+      drawPileCount: round.drawPile.length,
+      discardTop: top ? toClientCard(top, ctx) : null,
+    });
+    emitHand(state, playerId, events);
+  }
 
-function doDiscard(state, playerId, cardId, events) {
-  const { round } = state;
-  const hand = round.hands[playerId];
-  const index = hand.findIndex((c) => c.id === cardId);
-  if (index === -1) throw gameError('CARD_NOT_IN_HAND');
-  const [card] = hand.splice(index, 1);
-  round.discardPile.push(card);
-  removeFromGroups(round, playerId, cardId);
-  round.phase = PHASE.AWAITING_END_TURN;
+  function removeFromGroups(round, playerId, cardId) {
+    round.groups[playerId] = round.groups[playerId]
+      .map((g) => g.filter((id) => id !== cardId))
+      .filter((g) => g.length > 0);
+  }
 
-  emit(events, 'card-discarded', {
-    playerId,
-    card: toClientCard(card, ctxOf(state)),
-    drawPileCount: round.drawPile.length,
-  });
-  emitHand(state, playerId, events);
+  function doDiscard(state, playerId, cardId, events) {
+    const { round } = state;
+    const hand = round.hands[playerId];
+    const index = hand.findIndex((c) => c.id === cardId);
+    if (index === -1) throw gameError('CARD_NOT_IN_HAND');
+    const [card] = hand.splice(index, 1);
+    round.discardPile.push(card);
+    removeFromGroups(round, playerId, cardId);
+    round.phase = PHASE.AWAITING_END_TURN;
 
-  // The "1 CARD TO WIN" flag must always reflect the real hand.
-  if (round.oneCardToWin[playerId] && !checkOneCardToWin(hand, ctxOf(state), state.deckCount).eligible) {
+    emit(events, 'card-discarded', {
+      playerId,
+      card: toClientCard(card, ctxOf(state)),
+      drawPileCount: round.drawPile.length,
+    });
+    emitHand(state, playerId, events);
+
+    // The "1 CARD TO WIN" flag must always reflect the real hand.
+    if (round.oneCardToWin[playerId] && !rules.checkOneCardToWin(hand, ctxOf(state), state.deckCount).eligible) {
+      round.oneCardToWin[playerId] = false;
+      emit(events, 'one-card-to-win', { playerId, active: false });
+    }
+  }
+
+  function advanceTurn(state, fromId, events) {
+    const { round } = state;
+    const nextId = nextPlaying(round, fromId);
+    round.currentPlayerId = nextId;
+    round.phase = PHASE.AWAITING_DRAW;
+    round.turnNo += 1;
+    round.lastDrawnId = null;
+    emit(events, 'player-turn', {
+      roundNo: round.no, turnNo: round.turnNo, playerId: nextId, seconds: state.config.turnTimerSeconds,
+    });
+  }
+
+  function completeTurn(state, playerId, events) {
+    state.round.turnsTaken[playerId] += 1;
+    advanceTurn(state, playerId, events);
+  }
+
+  /** Take a player out of the round, then finish the round or pass the turn. */
+  function afterPlayerLeaves(state, leaverId, events) {
+    const remaining = playingIds(state.round);
+    if (remaining.length === 1) {
+      finishRound(state, {
+        winnerId: remaining[0], endReason: END_REASON.LAST_PLAYER_STANDING, scoreRemaining: false,
+      }, events);
+      return;
+    }
+    advanceTurn(state, leaverId, events);
+  }
+
+  function doDrop(state, playerId, events, { auto = false } = {}) {
+    const { round, config } = state;
+    const { type, penalty, reason } = rules.dropPenalty(round.turnsTaken[playerId], config);
+    // A player can only ever hold one penalty per round (never both drop penalties).
+    chargePenalty(round, playerId, reason, penalty);
+    round.playerStatus[playerId] = type === 'first' ? ROUND_STATUS.DROPPED_FIRST : ROUND_STATUS.DROPPED_MIDDLE;
     round.oneCardToWin[playerId] = false;
-    emit(events, 'one-card-to-win', { playerId, active: false });
-  }
-}
-
-function advanceTurn(state, fromId, events) {
-  const { round } = state;
-  const nextId = nextPlaying(round, fromId);
-  round.currentPlayerId = nextId;
-  round.phase = PHASE.AWAITING_DRAW;
-  round.turnNo += 1;
-  round.lastDrawnId = null;
-  emit(events, 'player-turn', {
-    roundNo: round.no, turnNo: round.turnNo, playerId: nextId, seconds: state.config.turnTimerSeconds,
-  });
-}
-
-function completeTurn(state, playerId, events) {
-  state.round.turnsTaken[playerId] += 1;
-  advanceTurn(state, playerId, events);
-}
-
-/** Take a player out of the round, then finish the round or pass the turn. */
-function afterPlayerLeaves(state, leaverId, events) {
-  const remaining = playingIds(state.round);
-  if (remaining.length === 1) {
-    finishRound(state, {
-      winnerId: remaining[0], endReason: END_REASON.LAST_PLAYER_STANDING, scoreRemaining: false,
-    }, events);
-    return;
-  }
-  advanceTurn(state, leaverId, events);
-}
-
-function doDrop(state, playerId, events, { auto = false } = {}) {
-  const { round, config } = state;
-  const { type, penalty, reason } = dropPenalty(round.turnsTaken[playerId], config);
-  // A player can only ever hold one penalty per round (never both drop penalties).
-  chargePenalty(round, playerId, reason, penalty);
-  round.playerStatus[playerId] = type === 'first' ? ROUND_STATUS.DROPPED_FIRST : ROUND_STATUS.DROPPED_MIDDLE;
-  round.oneCardToWin[playerId] = false;
-  state.players[playerId].drops += 1;
-  emit(events, 'player-drop', { playerId, type, penalty: round.penalties[playerId].penalty, auto });
-  afterPlayerLeaves(state, playerId, events);
-}
-
-function doDeclare(state, playerId, groups, events) {
-  const { round, config } = state;
-  if (round.phase === PHASE.AWAITING_DISCARD) throw gameError('DECLARATION_NOT_ALLOWED');
-  const hand = round.hands[playerId];
-  const ctx = ctxOf(state);
-  const check = validateDeclaration({ hand, groups, ctx });
-
-  if (check.valid) {
-    emit(events, 'declaration-result', { playerId, valid: true, penalty: 0 });
-    finishRound(state, {
-      winnerId: playerId,
-      endReason: END_REASON.VALID_DECLARATION,
-      scoreRemaining: true,
-      declaredGroups: check.groups.map((g) => ({ cardIds: g.cardIds, rank: g.rank, isLife: g.isLife })),
-    }, events);
-    return;
-  }
-
-  const policy = config.invalidDeclarationPolicy;
-  const charged = chargePenalty(round, playerId, PENALTY_REASON.INVALID_DECLARATION, invalidDeclarationPenalty(config));
-  emit(events, 'declaration-result', {
-    playerId, valid: false, penalty: charged ? round.penalties[playerId].penalty : 0, policy,
-  });
-  // Only the declarer learns what was wrong. Others never see the attempted groups.
-  emit(events, 'declaration-errors', { errors: check.errors }, playerId);
-
-  if (policy === 'end-round') {
-    finishRound(state, {
-      winnerId: null, endReason: END_REASON.INVALID_DECLARATION_END, scoreRemaining: false,
-    }, events);
-  } else if (policy === 'remove-declarer' || !charged) {
-    // continue-declarer allows one penalised attempt; a second failed attempt
-    // removes the player without a second penalty.
-    round.playerStatus[playerId] = ROUND_STATUS.REMOVED_INVALID;
-    round.oneCardToWin[playerId] = false;
+    state.players[playerId].drops += 1;
+    emit(events, 'player-drop', { playerId, type, penalty: round.penalties[playerId].penalty, auto });
     afterPlayerLeaves(state, playerId, events);
   }
-}
 
-function doArrange(state, playerId, groups) {
-  assertPlayerInRound(state, playerId);
-  const { round } = state;
-  const hand = round.hands[playerId];
-  if (!Array.isArray(groups) || groups.some((g) => !Array.isArray(g))) throw gameError('INVALID_ARRANGEMENT');
-  const flat = groups.flat();
-  const handIds = new Set(hand.map((c) => c.id));
-  if (flat.length !== hand.length || new Set(flat).size !== flat.length || flat.some((id) => !handIds.has(id))) {
-    throw gameError('INVALID_ARRANGEMENT');
+  function doDeclare(state, playerId, groups, events) {
+    const { round, config } = state;
+    if (round.phase === PHASE.AWAITING_DISCARD) throw gameError('DECLARATION_NOT_ALLOWED');
+    const hand = round.hands[playerId];
+    const ctx = ctxOf(state);
+    const check = rules.validateDeclaration({ hand, groups, ctx });
+
+    if (check.valid) {
+      emit(events, 'declaration-result', { playerId, valid: true, penalty: 0 });
+      finishRound(state, {
+        winnerId: playerId,
+        endReason: END_REASON.VALID_DECLARATION,
+        scoreRemaining: true,
+        declaredGroups: check.groups.map((g) => ({ cardIds: g.cardIds, rank: g.rank, isLife: Boolean(g.isLife), kind: g.kind || null })),
+      }, events);
+      return;
+    }
+
+    const policy = config.invalidDeclarationPolicy;
+    const charged = chargePenalty(round, playerId, PENALTY_REASON.INVALID_DECLARATION, rules.invalidDeclarationPenalty(config));
+    emit(events, 'declaration-result', {
+      playerId, valid: false, penalty: charged ? round.penalties[playerId].penalty : 0, policy,
+    });
+    // Only the declarer learns what was wrong. Others never see the attempted groups.
+    emit(events, 'declaration-errors', { errors: check.errors }, playerId);
+
+    if (policy === 'end-round') {
+      finishRound(state, {
+        winnerId: null, endReason: END_REASON.INVALID_DECLARATION_END, scoreRemaining: false,
+      }, events);
+    } else if (policy === 'remove-declarer' || !charged) {
+      // continue-declarer allows one penalised attempt; a second failed attempt
+      // removes the player without a second penalty.
+      round.playerStatus[playerId] = ROUND_STATUS.REMOVED_INVALID;
+      round.oneCardToWin[playerId] = false;
+      afterPlayerLeaves(state, playerId, events);
+    }
   }
-  round.groups[playerId] = groups.filter((g) => g.length > 0).map((g) => g.slice());
-}
 
-function doOneCardToWin(state, playerId, active, events) {
-  assertPlayerInRound(state, playerId);
-  const { round } = state;
-  if (active) {
-    const check = checkOneCardToWin(round.hands[playerId], ctxOf(state), state.deckCount);
-    if (!check.eligible) throw gameError('ONE_CARD_NOT_ELIGIBLE');
+  function doArrange(state, playerId, groups) {
+    assertPlayerInRound(state, playerId);
+    const { round } = state;
+    const hand = round.hands[playerId];
+    if (!Array.isArray(groups) || groups.some((g) => !Array.isArray(g))) throw gameError('INVALID_ARRANGEMENT');
+    const flat = groups.flat();
+    const handIds = new Set(hand.map((c) => c.id));
+    if (flat.length !== hand.length || new Set(flat).size !== flat.length || flat.some((id) => !handIds.has(id))) {
+      throw gameError('INVALID_ARRANGEMENT');
+    }
+    round.groups[playerId] = groups.filter((g) => g.length > 0).map((g) => g.slice());
   }
-  round.oneCardToWin[playerId] = Boolean(active);
-  emit(events, 'one-card-to-win', { playerId, active: Boolean(active) });
-}
 
-/** Called by the turn timer when the active player ran out of time. */
-function doTimeout(state, playerId, events, rng) {
-  const { round, config } = state;
-  assertActivePlayer(state, playerId);
+  function doOneCardToWin(state, playerId, active, events) {
+    assertPlayerInRound(state, playerId);
+    const { round } = state;
+    if (active) {
+      const check = rules.checkOneCardToWin(round.hands[playerId], ctxOf(state), state.deckCount);
+      if (!check.eligible) throw gameError('ONE_CARD_NOT_ELIGIBLE');
+    }
+    round.oneCardToWin[playerId] = Boolean(active);
+    emit(events, 'one-card-to-win', { playerId, active: Boolean(active) });
+  }
 
-  if (round.phase === PHASE.AWAITING_END_TURN) {
+  /** Called by the turn timer when the active player ran out of time. */
+  function doTimeout(state, playerId, events, rng) {
+    const { round, config } = state;
+    assertActivePlayer(state, playerId);
+
+    if (round.phase === PHASE.AWAITING_END_TURN) {
+      completeTurn(state, playerId, events);
+      return;
+    }
+    round.timeouts[playerId] += 1;
+    if (round.timeouts[playerId] >= config.autoDropAfterTimeouts) {
+      doDrop(state, playerId, events, { auto: true });
+      return;
+    }
+    if (round.phase === PHASE.AWAITING_DRAW) doDraw(state, playerId, 'draw', events, rng, { manual: false });
+    doDiscard(state, playerId, round.lastDrawnId, events);
     completeTurn(state, playerId, events);
-    return;
-  }
-  round.timeouts[playerId] += 1;
-  if (round.timeouts[playerId] >= config.autoDropAfterTimeouts) {
-    doDrop(state, playerId, events, { auto: true });
-    return;
-  }
-  if (round.phase === PHASE.AWAITING_DRAW) doDraw(state, playerId, 'draw', events, rng, { manual: false });
-  doDiscard(state, playerId, round.lastDrawnId, events);
-  completeTurn(state, playerId, events);
-}
-
-// ---------------------------------------------------------------------------
-// finishing a round
-// ---------------------------------------------------------------------------
-
-/**
- * Score the round once, update cumulative scores, eliminate players, and
- * either complete the game or wait for the next round. This function is the
- * only place cumulative scores change; `round.status === completed` makes a
- * second call impossible.
- */
-function finishRound(state, { winnerId, endReason, scoreRemaining, declaredGroups }, events) {
-  const { round, config } = state;
-  if (round.result) throw gameError('ROUND_NOT_ACTIVE');
-  const ctx = ctxOf(state);
-  const reveals = {};
-
-  if (winnerId) {
-    round.playerStatus[winnerId] = ROUND_STATUS.WINNER;
-    chargePenalty(round, winnerId, PENALTY_REASON.WINNER, 0);
-    if (declaredGroups) {
-      reveals[winnerId] = {
-        cards: round.hands[winnerId].map((c) => toClientCard(c, ctx)),
-        groups: declaredGroups.map((g) => ({ cardIds: g.cardIds, isLife: g.isLife })),
-      };
-    }
   }
 
-  for (const id of round.order) {
-    if (round.penalties[id]) continue;
-    if (scoreRemaining && round.playerStatus[id] === ROUND_STATUS.PLAYING) {
-      const scored = scoreHand(round.hands[id], ctx);
-      round.penalties[id] = { reason: scored.reason, penalty: scored.points, unmatchedIds: scored.unmatchedIds };
-      reveals[id] = {
-        cards: round.hands[id].map((c) => toClientCard(c, ctx)),
-        groups: scored.groups.map((g) => ({ cardIds: g.cardIds, isLife: g.isLife })),
-        unmatchedIds: scored.unmatchedIds,
-      };
-    } else {
-      round.penalties[id] = { reason: PENALTY_REASON.NO_PENALTY, penalty: 0 };
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // finishing a round
+  // ---------------------------------------------------------------------------
 
-  // Apply scores exactly once.
-  for (const id of round.order) state.players[id].score += round.penalties[id].penalty;
-  const newlyEliminated = findNewlyEliminated(state.players, state.seatOrder, config.eliminationThreshold);
-  markEliminated(state.players, newlyEliminated, round.no);
+  /**
+   * Score the round once, update cumulative scores, eliminate players, and
+   * either complete the game or wait for the next round. This function is the
+   * only place cumulative scores change; `round.status === completed` makes a
+   * second call impossible.
+   */
+  function finishRound(state, { winnerId, endReason, scoreRemaining, declaredGroups }, events) {
+    const { round, config } = state;
+    if (round.result) throw gameError('ROUND_NOT_ACTIVE');
+    const ctx = ctxOf(state);
+    const reveals = {};
 
-  const results = round.order.map((id) => ({
-    playerId: id,
-    penalty: round.penalties[id].penalty,
-    reason: round.penalties[id].reason,
-    roundStatus: round.playerStatus[id],
-    cumulativeScore: state.players[id].score,
-    eliminated: newlyEliminated.includes(id),
-  }));
-  round.result = { roundNo: round.no, winnerId, endReason, dealerId: round.dealerId, results };
-  state.history.push(round.result);
-
-  emit(events, 'round-completed', { ...round.result, reveals });
-  for (const id of newlyEliminated) {
-    emit(events, 'player-eliminated', {
-      playerId: id, cumulativeScore: state.players[id].score, roundNo: round.no,
-    });
-  }
-
-  const end = resolveGameEnd({ players: state.players, seatOrder: state.seatOrder, newlyEliminated });
-  if (end.finished) {
-    state.stage = STAGE.COMPLETED;
-    state.winnerId = end.winnerId;
-    emitScoreboard(state, events);
-    emit(events, 'game-completed', {
-      winnerId: end.winnerId,
-      winnerNickname: state.players[end.winnerId].nickname,
-      totalRounds: state.roundNo,
-      finalScoreboard: scoreboardOf(state),
-      eliminatedHistory: state.seatOrder
-        .filter((id) => state.players[id].status === PLAYER_STATUS.ELIMINATED)
-        .map((id) => ({
-          playerId: id,
-          nickname: state.players[id].nickname,
-          cumulativeScore: state.players[id].score,
-          eliminatedInRound: state.players[id].eliminatedInRound,
-        })),
-    });
-  } else {
-    state.stage = STAGE.BETWEEN_ROUNDS;
-    emitScoreboard(state, events);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// public entry point
-// ---------------------------------------------------------------------------
-
-/**
- * @param {object} state
- * @param {{type: string, playerId?: string, [k: string]: any}} action
- * @param {{rng?: Function}} [options]
- * @returns {{state: object, events: {name: string, to: string, payload: object}[]}}
- */
-function applyAction(state, action, options = {}) {
-  const rng = options.rng || secureRandomInt;
-  if (!action || typeof action.type !== 'string') throw gameError('UNKNOWN_ACTION');
-  if (state.stage === STAGE.COMPLETED) throw gameError('GAME_FINISHED');
-
-  const next = structuredClone(state);
-  const events = [];
-  const { playerId } = action;
-
-  if (action.type === 'start-next-round') {
-    if (next.stage !== STAGE.BETWEEN_ROUNDS) throw gameError('NOT_BETWEEN_ROUNDS');
-    const active = eligibleIds(next.players, next.seatOrder);
-    startRound(next, nextDealer(next.seatOrder, next.round.dealerId, active), rng, events);
-  } else {
-    if (next.stage !== STAGE.IN_ROUND) throw gameError('ROUND_NOT_ACTIVE');
-    const { round } = next;
-    switch (action.type) {
-      case 'draw':
-        assertActivePlayer(next, playerId);
-        assertPhase(round, [PHASE.AWAITING_DRAW], 'draw');
-        doDraw(next, playerId, action.source, events, rng, { manual: true });
-        break;
-      case 'discard': {
-        assertActivePlayer(next, playerId);
-        assertPhase(round, [PHASE.AWAITING_DISCARD], 'discard');
-        doDiscard(next, playerId, action.cardId, events);
-        if (action.endTurn !== false) completeTurn(next, playerId, events);
-        break;
+    if (winnerId) {
+      round.playerStatus[winnerId] = ROUND_STATUS.WINNER;
+      chargePenalty(round, winnerId, PENALTY_REASON.WINNER, 0);
+      if (declaredGroups) {
+        reveals[winnerId] = {
+          cards: round.hands[winnerId].map((c) => toClientCard(c, ctx)),
+          groups: declaredGroups.map((g) => ({ cardIds: g.cardIds, isLife: Boolean(g.isLife), kind: g.kind || null })),
+        };
       }
-      case 'end-turn':
-        assertActivePlayer(next, playerId);
-        assertPhase(round, [PHASE.AWAITING_END_TURN], 'end-turn');
-        completeTurn(next, playerId, events);
-        break;
-      case 'drop':
-        assertActivePlayer(next, playerId);
-        assertPhase(round, [PHASE.AWAITING_DRAW], 'drop');
-        doDrop(next, playerId, events);
-        break;
-      case 'declare':
-        assertActivePlayer(next, playerId);
-        assertPhase(round, [PHASE.AWAITING_DRAW, PHASE.AWAITING_END_TURN], 'declare');
-        doDeclare(next, playerId, action.groups, events);
-        break;
-      case 'arrange':
-        doArrange(next, playerId, action.groups);
-        emitHand(next, playerId, events);
-        break;
-      case 'one-card-to-win':
-        doOneCardToWin(next, playerId, action.active !== false, events);
-        break;
-      case 'timeout':
-        doTimeout(next, playerId, events, rng);
-        break;
-      default:
-        throw gameError('UNKNOWN_ACTION');
+    }
+
+    for (const id of round.order) {
+      if (round.penalties[id]) continue;
+      if (scoreRemaining && round.playerStatus[id] === ROUND_STATUS.PLAYING) {
+        const scored = rules.scoreHand(round.hands[id], ctx);
+        round.penalties[id] = { reason: scored.reason, penalty: scored.points, unmatchedIds: scored.unmatchedIds };
+        reveals[id] = {
+          cards: round.hands[id].map((c) => toClientCard(c, ctx)),
+          groups: scored.groups.map((g) => ({ cardIds: g.cardIds, isLife: Boolean(g.isLife), kind: g.kind || null })),
+          unmatchedIds: scored.unmatchedIds,
+        };
+      } else {
+        round.penalties[id] = { reason: PENALTY_REASON.NO_PENALTY, penalty: 0 };
+      }
+    }
+
+    // Apply scores exactly once.
+    for (const id of round.order) state.players[id].score += round.penalties[id].penalty;
+    const newlyEliminated = findNewlyEliminated(state.players, state.seatOrder, config.eliminationThreshold);
+    markEliminated(state.players, newlyEliminated, round.no);
+
+    const results = round.order.map((id) => ({
+      playerId: id,
+      penalty: round.penalties[id].penalty,
+      reason: round.penalties[id].reason,
+      roundStatus: round.playerStatus[id],
+      cumulativeScore: state.players[id].score,
+      eliminated: newlyEliminated.includes(id),
+    }));
+    round.result = { roundNo: round.no, winnerId, endReason, dealerId: round.dealerId, results };
+    state.history.push(round.result);
+
+    emit(events, 'round-completed', { ...round.result, reveals });
+    for (const id of newlyEliminated) {
+      emit(events, 'player-eliminated', {
+        playerId: id, cumulativeScore: state.players[id].score, roundNo: round.no,
+      });
+    }
+
+    const end = resolveGameEnd({ players: state.players, seatOrder: state.seatOrder, newlyEliminated });
+    if (end.finished) {
+      state.stage = STAGE.COMPLETED;
+      state.winnerId = end.winnerId;
+      emitScoreboard(state, events);
+      emit(events, 'game-completed', {
+        winnerId: end.winnerId,
+        winnerNickname: state.players[end.winnerId].nickname,
+        totalRounds: state.roundNo,
+        finalScoreboard: scoreboardOf(state),
+        eliminatedHistory: state.seatOrder
+          .filter((id) => state.players[id].status === PLAYER_STATUS.ELIMINATED)
+          .map((id) => ({
+            playerId: id,
+            nickname: state.players[id].nickname,
+            cumulativeScore: state.players[id].score,
+            eliminatedInRound: state.players[id].eliminatedInRound,
+          })),
+      });
+    } else {
+      state.stage = STAGE.BETWEEN_ROUNDS;
+      emitScoreboard(state, events);
     }
   }
 
-  next.version += 1;
-  verifyRoundIntegrity(next);
-  return { state: next, events };
+  // ---------------------------------------------------------------------------
+  // public entry point
+  // ---------------------------------------------------------------------------
+
+  /**
+   * @param {object} state
+   * @param {{type: string, playerId?: string, [k: string]: any}} action
+   * @param {{rng?: Function}} [options]
+   * @returns {{state: object, events: {name: string, to: string, payload: object}[]}}
+   */
+  function applyAction(state, action, options = {}) {
+    const rng = options.rng || secureRandomInt;
+    if (!action || typeof action.type !== 'string') throw gameError('UNKNOWN_ACTION');
+    if (state.stage === STAGE.COMPLETED) throw gameError('GAME_FINISHED');
+
+    const next = structuredClone(state);
+    const events = [];
+    const { playerId } = action;
+
+    if (action.type === 'start-next-round') {
+      if (next.stage !== STAGE.BETWEEN_ROUNDS) throw gameError('NOT_BETWEEN_ROUNDS');
+      const active = eligibleIds(next.players, next.seatOrder);
+      startRound(next, nextDealer(next.seatOrder, next.round.dealerId, active), rng, events);
+    } else {
+      if (next.stage !== STAGE.IN_ROUND) throw gameError('ROUND_NOT_ACTIVE');
+      const { round } = next;
+      switch (action.type) {
+        case 'draw':
+          assertActivePlayer(next, playerId);
+          assertPhase(round, [PHASE.AWAITING_DRAW], 'draw');
+          doDraw(next, playerId, action.source, events, rng, { manual: true });
+          break;
+        case 'discard': {
+          assertActivePlayer(next, playerId);
+          assertPhase(round, [PHASE.AWAITING_DISCARD], 'discard');
+          doDiscard(next, playerId, action.cardId, events);
+          if (action.endTurn !== false) completeTurn(next, playerId, events);
+          break;
+        }
+        case 'end-turn':
+          assertActivePlayer(next, playerId);
+          assertPhase(round, [PHASE.AWAITING_END_TURN], 'end-turn');
+          completeTurn(next, playerId, events);
+          break;
+        case 'drop':
+          assertActivePlayer(next, playerId);
+          assertPhase(round, [PHASE.AWAITING_DRAW], 'drop');
+          doDrop(next, playerId, events);
+          break;
+        case 'declare':
+          assertActivePlayer(next, playerId);
+          assertPhase(round, [PHASE.AWAITING_DRAW, PHASE.AWAITING_END_TURN], 'declare');
+          doDeclare(next, playerId, action.groups, events);
+          break;
+        case 'arrange':
+          doArrange(next, playerId, action.groups);
+          emitHand(next, playerId, events);
+          break;
+        case 'one-card-to-win':
+          doOneCardToWin(next, playerId, action.active !== false, events);
+          break;
+        case 'timeout':
+          doTimeout(next, playerId, events, rng);
+          break;
+        default:
+          throw gameError('UNKNOWN_ACTION');
+      }
+    }
+
+    next.version += 1;
+    verifyRoundIntegrity(next);
+    return { state: next, events };
+  }
+
+  /**
+   * What the platform should schedule next: the active player's turn deadline.
+   * @returns {{playerId: string, seconds: number, roundNo: number, turnNo: number}|null}
+   */
+  function nextTimer(state) {
+    if (state.stage !== STAGE.IN_ROUND || state.config.turnTimerSeconds === 0) return null;
+    return {
+      playerId: state.round.currentPlayerId,
+      seconds: state.config.turnTimerSeconds,
+      roundNo: state.round.no,
+      turnNo: state.round.turnNo,
+    };
+  }
+
+  return { createGame, applyAction, nextTimer };
 }
 
-/**
- * What the platform should schedule next: the active player's turn deadline.
- * @returns {{playerId: string, seconds: number, roundNo: number, turnNo: number}|null}
- */
-function nextTimer(state) {
-  if (state.stage !== STAGE.IN_ROUND || state.config.turnTimerSeconds === 0) return null;
-  return {
-    playerId: state.round.currentPlayerId,
-    seconds: state.config.turnTimerSeconds,
-    roundNo: state.round.no,
-    turnNo: state.round.turnNo,
-  };
-}
+const setEngine = createEngine(require('./set-rules'));
 
 module.exports = {
-  createGame, applyAction, nextTimer, scoreboardOf, toClientCard, verifyRoundIntegrity, buildDecks,
+  createEngine,
+  ...setEngine,
+  scoreboardOf, toClientCard, verifyRoundIntegrity, buildDecks,
 };

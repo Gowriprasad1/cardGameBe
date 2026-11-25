@@ -12,7 +12,7 @@ module.exports = {
     nickname: { type: 'string', min: 2, max: 30, pattern: /^[\p{L}\p{N} _.'-]+$/u },
   },
   createRoom: {
-    gameType: { type: 'enum', values: ['SET'], default: 'SET' },
+    gameType: { type: 'enum', values: ['SET', 'RUMMY'], default: 'SET' },
     // points at which a player is out; the host picks one when creating the room
     points: { type: 'enum', values: [101, 201, 301], default: 201 },
   },

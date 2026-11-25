@@ -24,7 +24,10 @@ test('GET /api/health checks the database', async () => {
 
 test('GET /api/games lists SET with player limits', async () => {
   const r = await srv.api('GET', '/api/games');
-  assert.deepEqual(r.json.data.games, [{ code: 'SET', name: 'Set Game', minPlayers: 2, maxPlayers: 5 }]);
+  assert.deepEqual(r.json.data.games, [
+    { code: 'SET', name: 'Set Game', minPlayers: 2, maxPlayers: 5 },
+    { code: 'RUMMY', name: 'Indian Rummy', minPlayers: 2, maxPlayers: 5 },
+  ]);
 });
 
 test('POST /api/guests creates a guest, stores only a hash of the token', async () => {

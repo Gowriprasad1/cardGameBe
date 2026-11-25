@@ -47,7 +47,7 @@ Game error codes (from the engine): `NOT_YOUR_TURN`, `ALREADY_DRAWN`, `MUST_DRAW
 
 | Event | Payload | Rules checked |
 |---|---|---|
-| `create-room` | `{ gameType: "SET", points?: 101 \| 201 \| 301 }` | Authenticated. Creates room, creator is host and seat 0. `points` is the score at which a player is out (default 201, any other value is refused with `VALIDATION_FAILED`). It is saved with the room and fixed for the whole game. Returns `{ roomCode, room }`. |
+| `create-room` | `{ gameType: "SET" \| "RUMMY", points?: 101 \| 201 \| 301 }` | Authenticated. Creates room, creator is host and seat 0. `points` is the score at which a player is out (default 201, any other value is refused with `VALIDATION_FAILED`). It is saved with the room and fixed for the whole game. Returns `{ roomCode, room }`. |
 | `join-room` | `{ roomCode }` | Room exists, status `waiting`, not full, user not already in room (rejoin handled separately), user not eliminated in an active game. |
 | `leave-room` | `{}` | Only in `waiting`. Host leaving transfers host or closes room. |
 | `start-game` | `{}` | Host only, 2–5 players, room `waiting`. Freezes the player list. |
