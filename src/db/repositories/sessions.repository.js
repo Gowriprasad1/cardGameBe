@@ -41,6 +41,42 @@ async function loadLiveSessions(db) {
   )).rows;
 }
 
+/**
+ * Remove the bulky working data of a session: every card, every logged action
+ * and the saved game state. The result (rounds, scores, history, totals) stays.
+ * One statement, one round trip.
+ */
+async function purgeSessionDetails(db, sessionId) {
+  await db.query(
+    `WITH c AS (DELETE FROM card_decks WHERE round_id IN (SELECT id FROM game_rounds WHERE session_id = $1) RETURNING 1),
+          a AS (DELETE FROM game_actions WHERE session_id = $1 RETURNING 1)
+     UPDATE game_sessions SET state_snapshot = NULL WHERE id = $1`,
+    [sessionId],
+  );
+}
+
+/**
+ * Delete finished or abandoned rooms (and everything under them) that ended
+ * more than `days` days ago. Sessions go first so their rounds, scores and
+ * history are removed before the room's players.
+ * @returns {Promise<number>} number of rooms deleted
+ */
+async function purgeOldRooms(db, days) {
+  const { rows } = await db.query(
+    `SELECT id FROM game_rooms
+      WHERE status IN ('finished', 'abandoned')
+        AND COALESCE(finished_at, updated_at) < now() - ($1::int * interval '1 day')`,
+    [days],
+  );
+  if (rows.length === 0) return 0;
+  const ids = rows.map((r) => r.id);
+  await db.withTransaction(async (tx) => {
+    await tx.query('DELETE FROM game_sessions WHERE room_id = ANY($1::uuid[])', [ids]);
+    await tx.query('DELETE FROM game_rooms WHERE id = ANY($1::uuid[])', [ids]);
+  });
+  return ids.length;
+}
+
 /** game_rounds ------------------------------------------------------------- */
 
 async function insertRound(db, { sessionId, roundNo, dealerRoomPlayerId, openJokerRank }) {
@@ -247,7 +283,7 @@ async function loadScoreHistory(db, sessionId) {
 }
 
 module.exports = {
-  insertSession, saveSnapshot, completeSession, loadLiveSessions,
+  insertSession, saveSnapshot, completeSession, loadLiveSessions, purgeSessionDetails, purgeOldRooms,
   insertRound, findRoundId, completeRound, insertRoundPlayers, updateRoundPlayers, replaceRoundCards,
   insertScores, updateRoomPlayerTotals, recordAction, insertAction, insertHistory, isParticipant, loadScoreHistory,
 };

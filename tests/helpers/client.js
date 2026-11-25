@@ -35,9 +35,10 @@ function connectClient(base, token) {
       const existing = events.slice(after).find(match);
       if (existing) return Promise.resolve(existing);
       return new Promise((resolve, reject) => {
-        const waiter = { match, resolve };
+        let timer = null;
+        const waiter = { match, resolve: (entry) => { clearTimeout(timer); resolve(entry); } };
         waiters.push(waiter);
-        setTimeout(() => {
+        timer = setTimeout(() => {
           const i = waiters.indexOf(waiter);
           if (i !== -1) { waiters.splice(i, 1); reject(new Error(`timed out waiting for "${name}"`)); }
         }, timeout);

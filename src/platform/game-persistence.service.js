@@ -18,8 +18,9 @@ const sessions = require('../db/repositories/sessions.repository');
  * During a round the session snapshot is the recoverable copy of the cards.
  */
 class GamePersistence {
-  constructor({ db }) {
+  constructor({ db, keepFullGameData = false }) {
     this.db = db;
+    this.keepFullGameData = keepFullGameData;
     /** `${sessionId}:${roundNo}` -> game_rounds.id, so an action does not need a lookup query */
     this.roundIds = new Map();
   }
@@ -122,7 +123,10 @@ class GamePersistence {
   /** Mark a session and its room abandoned (idle cleanup). */
   async abandon({ roomId, sessionId }) {
     return this.db.withTransaction(async (tx) => {
-      if (sessionId) await sessions.completeSession(tx, { sessionId, winnerRoomPlayerId: null, status: 'abandoned' });
+      if (sessionId) {
+        await sessions.completeSession(tx, { sessionId, winnerRoomPlayerId: null, status: 'abandoned' });
+        if (!this.keepFullGameData) await sessions.purgeSessionDetails(tx, sessionId);
+      }
       await rooms.setRoomStatus(tx, { roomId, status: 'abandoned' });
     });
   }
@@ -195,6 +199,8 @@ class GamePersistence {
       eliminatedHistory: done.payload.eliminatedHistory,
       startedAt,
     });
+    // The game is over and its result is saved: drop the working data (cards, action log, saved state).
+    if (!this.keepFullGameData) await sessions.purgeSessionDetails(tx, sessionId);
   }
 }
 

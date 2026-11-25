@@ -90,7 +90,7 @@ async function assertSavedGame(srv, { players, roomCode, final }) {
 let counter = 0;
 for (const n of [2, 3, 4, 5]) {
   test(`${n} bots play a whole game over sockets to a winner, and every round is saved correctly`, async () => {
-    const srv = await startTestServer({ env: { TURN_TIMER_SECONDS: '0', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000' } });
+    const srv = await startTestServer({ env: { TURN_TIMER_SECONDS: '0', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000', KEEP_FULL_GAME_DATA: '1' } });
     try {
       const game = await playWholeGame(srv, n, { quitter: n % 2 === 1 });
       const rounds = await assertSavedGame(srv, game);
@@ -102,7 +102,7 @@ for (const n of [2, 3, 4, 5]) {
 }
 
 test('privacy over a whole round: no client ever receives another player\'s private cards', async () => {
-  const srv = await startTestServer({ env: { TURN_TIMER_SECONDS: '0', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000' } });
+  const srv = await startTestServer({ env: { TURN_TIMER_SECONDS: '0', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000', KEEP_FULL_GAME_DATA: '1' } });
   try {
     const players = [];
     for (let i = 0; i < 3; i += 1) players.push(await srv.player(`Priv${i}`));
@@ -150,7 +150,7 @@ test('the real pg driver: migrations, a whole game and a restart all work throug
     assert.deepEqual(applied, ['001_init']);
     assert.deepEqual(await migrate(pg.db), [], 'running migrations again is a no-op');
 
-    const first = await startTestServer({ db: pg.db, env: { TURN_TIMER_SECONDS: '0', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000' } });
+    const first = await startTestServer({ db: pg.db, env: { TURN_TIMER_SECONDS: '0', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000', KEEP_FULL_GAME_DATA: '1' } });
     let game;
     try {
       game = await playWholeGame(first, 2, { quitter: false });
@@ -164,7 +164,7 @@ test('the real pg driver: migrations, a whole game and a restart all work throug
     }
 
     // a second server process on the same database sees the finished game's history
-    const second = await startTestServer({ db: pg.db, env: { TURN_TIMER_SECONDS: '0', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000' } });
+    const second = await startTestServer({ db: pg.db, env: { TURN_TIMER_SECONDS: '0', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000', KEEP_FULL_GAME_DATA: '1' } });
     try {
       const sessionId = (await pg.db.query('SELECT id FROM game_sessions LIMIT 1')).rows[0].id;
       const me = game.players[0];

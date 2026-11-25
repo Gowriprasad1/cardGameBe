@@ -289,9 +289,7 @@ class RoomService {
   async sweepIdle(now = Date.now()) {
     if (!this.lastGuestPurge || now - this.lastGuestPurge > DAY_MS) {
       this.lastGuestPurge = now;
-      usersRepo.purgeStaleGuests(this.db, GUEST_RETENTION_DAYS)
-        .then((n) => { if (n > 0) this.logger.info('stale guests removed', { count: n }); })
-        .catch((err) => this.logger.warn('guest cleanup failed', { err }));
+      await this.#dailyCleanup();
     }
     const limit = this.env.roomIdleMinutes * 60 * 1000;
     for (const room of [...this.rooms.values()]) {
@@ -299,6 +297,17 @@ class RoomService {
       if (anyoneHere || now - room.lastActivityAt < limit) continue;
       await this.queue.run(`room:${room.code}`, () => (room.status === 'finished' ? this.#evict(room) : this.#abandon(room)));
     }
+  }
+
+  /** Old finished/abandoned rooms first (they release their players), then guests nobody refers to. */
+  #dailyCleanup() {
+    const days = this.env.dataRetentionDays;
+    const oldRooms = days > 0 ? sessionsRepo.purgeOldRooms(this.db, days) : Promise.resolve(0);
+    return oldRooms
+      .then((n) => { if (n > 0) this.logger.info('old rooms removed', { count: n, olderThanDays: days }); })
+      .then(() => usersRepo.purgeStaleGuests(this.db, GUEST_RETENTION_DAYS))
+      .then((n) => { if (n > 0) this.logger.info('stale guests removed', { count: n }); })
+      .catch((err) => this.logger.warn('data cleanup failed', { err }));
   }
 
   /** Forget a finished room (its results are already saved; nothing is rewritten). */

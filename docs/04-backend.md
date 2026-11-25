@@ -16,6 +16,20 @@ npm test               # unit + integration, no database needed
 
 `AUTO_MIGRATE=true` runs the migrations at startup (convenient on Render).
 
+## Using a `.env` file locally
+
+The backend reads settings from environment variables. For local work you can keep them in a file named `.env` in the `backend` folder (copy `.env.example`; the file is git-ignored and never pushed). Files starting with a dot are hidden: in Finder press Cmd+Shift+. to see them, in an editor open the folder tree with hidden files shown, or use `ls -a`.
+
+```bash
+npm run start:neon     # starts the API using the settings in .env (your Neon database)
+npm run migrate:neon   # applies the migrations to that database
+npm run smoke:neon     # plays a whole bot game against it and cleans up
+```
+
+Hosting providers (Render, Vercel) do not use the file: you type the same names and values into their dashboards.
+
+The frontend has no `.env` file. Its development API address is in `src/environments/environment.development.ts`, and the production address comes from the `API_URL` build variable on Vercel.
+
 ## Environment variables
 
 | Variable | Default | Meaning |
@@ -29,6 +43,8 @@ npm test               # unit + integration, no database needed
 | `TURN_TIMER_SECONDS` | `60` | Per-turn limit. `0` turns the timer off. |
 | `RECONNECT_GRACE_SECONDS` | `90` | With the turn timer off, how long a disconnected player's turn waits before the server plays it. |
 | `ROUND_BREAK_SECONDS` | `10` | Pause on the round result before the next deal. Skipped when every connected player sends `next-round-ready`. |
+| `KEEP_FULL_GAME_DATA` | `false` | `1` keeps every card, action and saved state of finished games (debugging only). |
+| `DATA_RETENTION_DAYS` | `30` | Finished/abandoned rooms older than this are deleted completely. `0` = keep forever. |
 | `ROOM_IDLE_MINUTES` | `30` | A room nobody is connected to for this long is abandoned. |
 | `RATE_LIMIT_API` / `RATE_LIMIT_STRICT` | `120` / `20` | REST requests per minute per address (strict applies to guest creation and room lookup). |
 
@@ -73,9 +89,16 @@ The platform talks to a game only through `createGame`, `applyAction`, `viewFor`
 | Action accepted | `game_actions` row, session snapshot and version |
 | Round dealt | `game_rounds`, `round_players`, all `card_decks`, hands in `player_cards` |
 | Round finished | round result, `round_players`, `player_scores` (unique per round and player), cumulative scores, eliminations, final card positions |
-| Game finished | session and room closed, `game_history` |
+| Game finished | session and room closed, `game_history`, then the working data is **deleted** (see below) |
 
-During a round the session snapshot is the recoverable copy of the piles and hands. `card_decks`/`player_cards` are written at the deal and again at the end of the round.
+During a round the session snapshot is the recoverable copy of the piles and hands.
+
+### Cleanup: what is deleted and when
+
+- **When a game ends** (or an idle game is abandoned) the bulky working data is deleted in the same transaction that saves the result: every row of `card_decks` and `player_cards`, the whole `game_actions` log for that game, and `game_sessions.state_snapshot`. **Kept:** `game_history` (winner, rounds, final scoreboard, who was eliminated when), `player_scores` (round-by-round points), `game_rounds`, `round_players`, `room_players` totals. Players still see the final result in the live game, and `GET /api/sessions/:id/history` keeps working. Set `KEEP_FULL_GAME_DATA=1` to keep everything while debugging.
+- **After `DATA_RETENTION_DAYS` (default 30)** finished and abandoned rooms are deleted completely, with their sessions, rounds, scores and history. `0` keeps them forever. Rooms that are still waiting or in progress are never touched.
+- **Guests** who never played and were not seen for 90 days are deleted.
+- The retention and guest cleanup run once a day while the server is up. `card_decks`/`player_cards` are written at the deal and again at the end of the round.
 
 ## Reconnection and restarts
 

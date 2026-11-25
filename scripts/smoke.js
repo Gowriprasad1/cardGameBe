@@ -114,9 +114,13 @@ async function runLocalServerOnDatabase(databaseUrl) {
       'SELECT count(*)::int AS n FROM (SELECT round_id, room_player_id FROM player_scores WHERE session_id = $1 GROUP BY 1,2 HAVING count(*) > 1) d',
       [result.sessionId]);
     check(dup.n === 0, 'no score was saved twice');
-    const [cards] = await q(
-      `SELECT count(*)::int AS n FROM card_decks cd JOIN game_rounds gr ON gr.id = cd.round_id WHERE gr.session_id = $1`, [result.sessionId]);
-    check(cards.n === 54 * result.final.totalRounds, 'every round has all 54 cards stored once');
+    const [left] = await q(
+      `SELECT (SELECT count(*) FROM card_decks cd JOIN game_rounds gr ON gr.id = cd.round_id WHERE gr.session_id = $1)::int AS cards,
+              (SELECT count(*) FROM game_actions WHERE session_id = $1)::int AS actions,
+              (SELECT (state_snapshot IS NOT NULL)::int FROM game_sessions WHERE id = $1) AS snapshot`, [result.sessionId]);
+    check(left.cards === 0 && left.actions === 0 && left.snapshot === 0, 'game details (cards, action log, saved state) were deleted after the game');
+    const [kept] = await q('SELECT count(*)::int AS n FROM player_scores WHERE session_id = $1', [result.sessionId]);
+    check(kept.n === 2 * result.final.totalRounds, 'the round-by-round scores were kept');
   } finally {
     if (server) await server.close();
     // remove everything this run created, also after a failure

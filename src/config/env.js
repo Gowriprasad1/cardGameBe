@@ -52,6 +52,10 @@ function loadEnv(source = process.env) {
     reconnectGraceSeconds: toInt(source, 'RECONNECT_GRACE_SECONDS', 90, { min: 1, max: 3600 }),
     /** a room with nobody connected for this long is abandoned */
     roomIdleMinutes: toInt(source, 'ROOM_IDLE_MINUTES', 30, { min: 1 }),
+    /** Keep every card, action and snapshot of finished games (debugging). Default: keep only the final result. */
+    keepFullGameData: toBool(source, 'KEEP_FULL_GAME_DATA', false),
+    /** Finished or abandoned rooms older than this many days are deleted completely. 0 keeps them forever. */
+    dataRetentionDays: toInt(source, 'DATA_RETENTION_DAYS', 30, { min: 0 }),
     /** Socket events: burst size and sustained events per second, per connection */
     socketBurst: toInt(source, 'SOCKET_BURST', 20, { min: 1 }),
     socketRatePerSecond: toInt(source, 'SOCKET_RATE_PER_SECOND', 8, { min: 1 }),
