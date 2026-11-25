@@ -153,6 +153,11 @@ for (const [n, points] of [[2, 101], [4, 201]]) {
         `SELECT count(*)::int AS n FROM card_decks cd JOIN game_rounds gr ON gr.id = cd.round_id
            JOIN game_sessions s ON s.id = gr.session_id JOIN game_rooms r ON r.id = s.room_id WHERE r.room_code = $1`, [roomCode])).rows[0];
       assert.equal(left.n, 0, 'cards are deleted when the game ends');
+      // a finished room is nothing to return to: the lobby must not offer "Return to room"
+      for (const p of players) {
+        const me = await srv.api('GET', '/api/me', { token: p.token });
+        assert.equal(me.json.data.activeRoomCode, null);
+      }
     } finally {
       await srv.stop();
     }

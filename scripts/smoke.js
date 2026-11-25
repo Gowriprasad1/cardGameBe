@@ -27,8 +27,18 @@ const { migrate } = require('../src/db/migrate');
 const { createServer } = require('../src/server');
 const { createGameRegistry } = require('../src/platform/game-registry');
 const setGame = require('../src/games/set');
+const rummyGame = require('../src/games/rummy');
 const { connectClient } = require('../tests/helpers/client');
 const { attachBot } = require('../tests/helpers/socket-bot');
+const { decideFromView } = require('../tests/helpers/bot');
+const { decideRummy } = require('../tests/helpers/rummy-bot');
+
+/** Every game the smoke test plays, one whole game each. */
+const GAMES = [
+  { gameType: 'SET', label: 'SmokeSet', decide: decideFromView },
+  // Rummy uses the real points dropdown value 101 (drops cost 20/40, so it ends in a few rounds)
+  { gameType: 'RUMMY', label: 'SmokeRum', decide: decideRummy, points: 101 },
+];
 
 /** Everything this run created, so it can be removed even if the run fails. */
 const created = { userIds: [], roomCodes: [] };
@@ -46,7 +56,7 @@ async function http(base, path, { method = 'GET', body, headers = {} } = {}) {
   return { status: res.status, headers: res.headers, json: await res.json().catch(() => null) };
 }
 
-async function playGame(base, label) {
+async function playGame(base, { gameType, label, decide, points }) {
   const bots = [];
   for (let i = 0; i < 2; i += 1) {
     const guest = (await http(base, '/api/guests', { method: 'POST', body: { nickname: `${label}${i}` } })).json.data;
@@ -56,17 +66,21 @@ async function playGame(base, label) {
     created.userIds.push(guest.userId);
   }
   try {
-    const { roomCode } = (await bots[0].client.emit('create-room', {})).data;
+    const createdRoom = await bots[0].client.emit('create-room', { gameType, ...(points ? { points } : {}) });
+    check(createdRoom.ok, `${gameType}: room created`);
+    const { roomCode } = createdRoom.data;
     created.roomCodes.push(roomCode);
     const joined = await bots[1].client.emit('join-room', { roomCode });
-    check(joined.ok, `room ${roomCode} created and joined`);
-    bots.forEach((b, i) => attachBot(b.client, { maxTurns: 6, quitsFirst: i === 0 }));
+    check(joined.ok, `${gameType}: room ${roomCode} joined by a second player`);
+    bots.forEach((b, i) => attachBot(b.client, { maxTurns: 6, quitsFirst: i === 0 }, decide));
     const start = await bots[0].client.emit('start-game', {});
-    check(start.ok, 'game started (dealt and saved)');
+    check(start.ok, `${gameType}: game started (dealt and saved)`);
+    const firstView = (await bots[1].client.waitFor('game-state', { timeout: 60000 })).payload; // the first deal
+    check(firstView.game === gameType && firstView.me.hand.length === 13, `${gameType}: each player got 13 private cards`);
     const done = await Promise.all(bots.map((b) => b.client.waitFor('game-completed', { timeout: 240000 })));
     for (const b of bots) if (b.client.botError) fail(`bot error: ${b.client.botError.message}`);
     const final = done[0].payload;
-    check(final.totalRounds >= 1 && final.winnerId, `game finished after ${final.totalRounds} rounds, winner ${final.winnerNickname}`);
+    check(final.totalRounds >= 1 && final.winnerId, `${gameType}: game finished after ${final.totalRounds} rounds, winner ${final.winnerNickname}`);
     const sessionId = (await bots[0].client.emit('resume', {})).data.room.sessionId;
     const history = await http(base, `/api/sessions/${sessionId}/history`, { headers: { Authorization: `Bearer ${bots[0].token}` } });
     check(history.status === 200 && history.json.data.rounds.length === final.totalRounds, 'round history readable over REST');
@@ -91,36 +105,42 @@ async function runLocalServerOnDatabase(databaseUrl) {
       DATABASE_URL: databaseUrl, NODE_ENV: 'test', LOG_LEVEL: 'warn', TURN_TIMER_SECONDS: '0', ROUND_BREAK_SECONDS: '600',
       SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000', RATE_LIMIT_STRICT: '1000',
     });
-    // Same rules, but the game ends at 41 points instead of 201 so it finishes in a few rounds
+    // Same rules, but SET ends at 41 points instead of 201 so it finishes in a few rounds
     // even when the database is far away. Set SMOKE_FULL=1 to play to 201.
     const short = process.env.SMOKE_FULL ? undefined : createGameRegistry([{
       ...setGame,
       createGame: (args) => setGame.createGame({ ...args, config: { ...args.config, eliminationThreshold: 41 } }),
-    }]);
-    if (short) ok('short game: eliminated at 41 points (SMOKE_FULL=1 plays to 201)');
+    }, rummyGame]);
+    if (short) ok('short SET game: eliminated at 41 points (SMOKE_FULL=1 plays to 201)');
     server = await createServer({ env, db, logger: createLogger({ level: 'warn' }), registry: short });
     const port = await server.listen(0);
     const base = `http://127.0.0.1:${port}`;
     check((await http(base, '/api/health')).status === 200, 'health check reaches the database');
 
-    const t0 = Date.now();
-    result = await playGame(base, 'Smoke');
-    ok(`whole game took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
-
     const q = async (sql, params) => (await db.query(sql, params)).rows;
-    const [h] = await q('SELECT total_rounds, winner_user_id FROM game_history WHERE session_id = $1', [result.sessionId]);
-    check(h && h.total_rounds === result.final.totalRounds, 'game_history saved');
-    const [dup] = await q(
-      'SELECT count(*)::int AS n FROM (SELECT round_id, room_player_id FROM player_scores WHERE session_id = $1 GROUP BY 1,2 HAVING count(*) > 1) d',
-      [result.sessionId]);
-    check(dup.n === 0, 'no score was saved twice');
-    const [left] = await q(
-      `SELECT (SELECT count(*) FROM card_decks cd JOIN game_rounds gr ON gr.id = cd.round_id WHERE gr.session_id = $1)::int AS cards,
-              (SELECT count(*) FROM game_actions WHERE session_id = $1)::int AS actions,
-              (SELECT (state_snapshot IS NOT NULL)::int FROM game_sessions WHERE id = $1) AS snapshot`, [result.sessionId]);
-    check(left.cards === 0 && left.actions === 0 && left.snapshot === 0, 'game details (cards, action log, saved state) were deleted after the game');
-    const [kept] = await q('SELECT count(*)::int AS n FROM player_scores WHERE session_id = $1', [result.sessionId]);
-    check(kept.n === 2 * result.final.totalRounds, 'the round-by-round scores were kept');
+    for (const game of GAMES) {
+      const t0 = Date.now();
+      result = await playGame(base, game);
+      ok(`${game.gameType}: whole game took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+
+      const [room] = await q(
+        `SELECT g.code, r.config FROM game_rooms r JOIN game_types g ON g.id = r.game_type_id WHERE r.room_code = $1`, [result.roomCode]);
+      check(room && room.code === game.gameType, `${game.gameType}: room saved with game type ${room && room.code}`);
+      const [h] = await q('SELECT total_rounds, winner_user_id FROM game_history WHERE session_id = $1', [result.sessionId]);
+      check(h && h.total_rounds === result.final.totalRounds, `${game.gameType}: game_history saved`);
+      const [dup] = await q(
+        'SELECT count(*)::int AS n FROM (SELECT round_id, room_player_id FROM player_scores WHERE session_id = $1 GROUP BY 1,2 HAVING count(*) > 1) d',
+        [result.sessionId]);
+      check(dup.n === 0, `${game.gameType}: no score was saved twice`);
+      const [left] = await q(
+        `SELECT (SELECT count(*) FROM card_decks cd JOIN game_rounds gr ON gr.id = cd.round_id WHERE gr.session_id = $1)::int AS cards,
+                (SELECT count(*) FROM game_actions WHERE session_id = $1)::int AS actions,
+                (SELECT (state_snapshot IS NOT NULL)::int FROM game_sessions WHERE id = $1) AS snapshot`, [result.sessionId]);
+      check(left.cards === 0 && left.actions === 0 && left.snapshot === 0,
+        `${game.gameType}: game details (cards, action log, saved state) were deleted after the game`);
+      const [kept] = await q('SELECT count(*)::int AS n FROM player_scores WHERE session_id = $1', [result.sessionId]);
+      check(kept.n === 2 * result.final.totalRounds, `${game.gameType}: the round-by-round scores were kept`);
+    }
   } finally {
     if (server) await server.close();
     // remove everything this run created, also after a failure
@@ -143,9 +163,11 @@ async function runAgainstDeployed(base, origin) {
     const bad = await fetch(`${base}/api/health`, { headers: { Origin: 'https://not-allowed.example' } });
     check(bad.headers.get('access-control-allow-origin') === null, 'CORS refuses other origins');
   }
-  const t0 = Date.now();
-  await playGame(base, 'Smoke');
-  ok(`whole game took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  for (const game of GAMES) {
+    const t0 = Date.now();
+    await playGame(base, game);
+    ok(`${game.gameType}: whole game took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  }
 }
 
 (async () => {

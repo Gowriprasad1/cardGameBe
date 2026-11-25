@@ -47,6 +47,13 @@ class RoomService {
     return this.userRoom.get(userId) || null;
   }
 
+  /** Like activeRoomCode, but a finished or abandoned room does not count (nothing left to return to). */
+  openRoomCode(userId) {
+    const code = this.activeRoomCode(userId);
+    const room = code ? this.rooms.get(code) : null;
+    return room && room.status !== 'finished' && room.status !== 'abandoned' ? code : null;
+  }
+
   /** Public, non-secret room description (also used for the Join screen). */
   preview(code) {
     const room = this.rooms.get(code);

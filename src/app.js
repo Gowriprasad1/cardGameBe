@@ -56,7 +56,7 @@ function createApp(container) {
   api.get('/me', auth, (req, res) => {
     res.json({
       ok: true,
-      data: { userId: req.user.id, nickname: req.user.nickname, activeRoomCode: rooms.activeRoomCode(req.user.id) },
+      data: { userId: req.user.id, nickname: req.user.nickname, activeRoomCode: rooms.openRoomCode(req.user.id) },
     });
   });
 
