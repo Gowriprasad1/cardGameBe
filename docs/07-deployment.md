@@ -44,24 +44,26 @@ You do these in your own accounts (I did not deploy anything, and the Render and
 ### 0. Rotate the Neon password
 The Neon connection string was pasted into a chat. In the Neon console reset the `neondb_owner` password (or create a new role) and use the new string below.
 
-### 1. Backend on Render
-1. Push this folder to a GitHub repository (it is not a git repository yet: `git init`, commit, push).
-2. Render dashboard > New > **Blueprint** > choose the repository. It reads `render.yaml`.
-3. When asked, enter `DATABASE_URL` (your Neon string) and `CLIENT_ORIGIN` (use a placeholder like `https://placeholder.example` for now; you will set the real Vercel URL in step 3).
-4. After the first deploy, open `https://YOUR-SERVICE.onrender.com/api/health`: it should say `{"ok":true,"data":{"status":"up"}}`. Migrations run at startup (`AUTO_MIGRATE=true`).
+The code lives in two GitHub repositories: `Gowriprasad1/cardGameBe` (the `backend/` folder, files at the repo root) and `Gowriprasad1/cardGameFe` (the `frontend/` folder, files at the repo root).
+
+### 1. Backend on Render (live at `https://cardgamebe.onrender.com`)
+1. Render > New > **Web Service** > repository `cardGameBe`, branch `main`, region Ohio (same as Neon), **Root Directory empty**.
+2. Build command `npm ci --omit=dev`, start command `npm run start`, instance type Free, health check path `/api/live`.
+3. Environment: `NODE_ENV=production`, `NODE_VERSION=22`, `DATABASE_URL` (your Neon string), `AUTO_MIGRATE=true`, and `CLIENT_ORIGIN` (a placeholder like `https://placeholder.example` until step 3).
+4. After the deploy, `https://cardgamebe.onrender.com/api/health` says `{"ok":true,"data":{"status":"up"}}`.
 
 ### 2. Frontend on Vercel
-1. Vercel > Add New > Project > the same repository. Set **Root Directory** to `frontend`.
-2. Environment variable `API_URL` = your Render URL, for example `https://set-game-api.onrender.com`.
+1. Vercel > Add New > Project > repository `cardGameFe`. **Root Directory empty** (the app is at the repo root). Framework preset: Angular (or Other; `vercel.json` sets the build command and output folder).
+2. The backend address is already in `src/environments/environment.ts` (`https://cardgamebe.onrender.com`). Setting the Vercel environment variable `API_URL` replaces it at build time, for example if the backend moves.
 3. Deploy. `vercel.json` handles page refreshes, `/room/CODE` invite links, caching and security headers.
 
 ### 3. Connect them
-In Render set `CLIENT_ORIGIN` to your Vercel URL (no trailing slash, e.g. `https://set-game.vercel.app`) and redeploy. A custom domain can be added as a second, comma separated entry.
+In Render set `CLIENT_ORIGIN` to your Vercel URL (no trailing slash, e.g. `https://card-game-fe.vercel.app`) and save (Render redeploys). A custom domain can be added as a second, comma separated entry.
 
 ### 4. Check it
 ```bash
 cd backend
-SMOKE_URL='https://YOUR-SERVICE.onrender.com' SMOKE_ORIGIN='https://YOUR-APP.vercel.app' npm run smoke
+SMOKE_URL='https://cardgamebe.onrender.com' SMOKE_ORIGIN='https://YOUR-APP.vercel.app' npm run smoke
 ```
 Then open the Vercel URL in two browsers (or one normal and one private window), create a room in one, join with the code in the other, and play a round.
 

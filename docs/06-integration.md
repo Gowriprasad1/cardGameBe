@@ -28,7 +28,7 @@ To apply only the migrations: `DATABASE_URL='...' npm run migrate`.
 ## Test a deployed backend
 
 ```bash
-SMOKE_URL='https://your-service.onrender.com' SMOKE_ORIGIN='https://your-app.vercel.app' npm run smoke
+SMOKE_URL='https://cardgamebe.onrender.com' SMOKE_ORIGIN='https://your-app.vercel.app' npm run smoke
 ```
 
 It checks `/api/health`, that CORS allows your Vercel origin and refuses others, and plays a whole game over the public WebSocket. Its guests and room remain in that database (a few tiny rows).
