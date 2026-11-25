@@ -10,6 +10,7 @@
  * Never use this in production.
  */
 
+const os = require('node:os');
 const { loadEnv } = require('../src/config/env');
 const { createLogger } = require('../src/config/logger');
 const { createServer } = require('../src/server');
@@ -28,11 +29,21 @@ function devRegistry() {
   return createGameRegistry([game]);
 }
 
+/**
+ * Local testing on a phone: the frontend is opened at http://<this computer's
+ * Wi-Fi address>:4200, so that address must be allowed too.
+ */
+function lanOrigins() {
+  return Object.values(os.networkInterfaces()).flat()
+    .filter((a) => a && a.family === 'IPv4' && !a.internal)
+    .map((a) => `http://${a.address}:4200`);
+}
+
 (async () => {
   const env = loadEnv({
     NODE_ENV: 'development',
     PORT: '3000',
-    CLIENT_ORIGIN: 'http://localhost:4200,http://127.0.0.1:4200',
+    CLIENT_ORIGIN: ['http://localhost:4200', 'http://127.0.0.1:4200', ...lanOrigins()].join(','),
     LOG_LEVEL: 'info',
     ...process.env,
   });
