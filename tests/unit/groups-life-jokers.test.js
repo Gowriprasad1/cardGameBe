@@ -28,12 +28,22 @@ test('a group is invalid with fewer than 3 cards, or mixed ranks', () => {
   assert.equal(valid('5H 5D 5C 6C'), false);
 });
 
-// 8. LIFE: 4+ natural identical-rank cards
-test('LIFE needs 4 or more natural cards of one rank', () => {
+// 8. LIFE: exactly 4 natural identical-rank cards
+test('LIFE is exactly 4 natural cards of one rank', () => {
   assert.equal(life('7H 7D 7C 7S'), true);
-  assert.equal(life('8H 8D 8C 8S 8H/2'), true);
   assert.equal(life('9H 9D 9C'), false);
   assert.equal(analyzeLife(cards('7H 7D 7C 7S'), ctx()).naturalCount, 4);
+});
+
+test('five or more of a rank is a valid ordinary set but NOT a LIFE', () => {
+  assert.equal(valid('8H 8D 8C 8S 8H/2'), true);
+  assert.equal(life('8H 8D 8C 8S 8H/2'), false);
+  assert.equal(life('8H 8D 8C 8S 8H/2 8D/2'), false);
+});
+
+test('rule option lifeRule "at-least" restores 4-or-more LIFE', () => {
+  assert.equal(life('8H 8D 8C 8S 8H/2', ctx('A', { lifeRule: 'at-least' })), true);
+  assert.throws(() => ctx('A', { lifeRule: 'sometimes' }), { code: 'INVALID_CONFIG' });
 });
 
 // 9. Joker not allowed in LIFE

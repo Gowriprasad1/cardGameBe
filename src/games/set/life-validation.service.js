@@ -3,15 +3,17 @@
 const { canActAsWild, canBeNatural } = require('./joker.service');
 
 /**
- * LIFE: a group with at least `lifeMinNatural` (4) NATURAL cards of one rank.
- * Jokers never count. 7,7,7,Joker is not LIFE, 7,7,7,7 is.
- * (A joker sitting in a group that already has 4 natural cards is only an
- * extra card; it contributes nothing toward LIFE.)
+ * LIFE: a group of NATURAL cards of one rank. By default (lifeRule 'exactly')
+ * it is EXACTLY 4 natural cards: 7,7,7,7 is a LIFE, but 7,7,7,7,7 is not (it can
+ * still be an ordinary set). With lifeRule 'at-least' 4 or more qualify.
+ * Jokers never count: 7,7,7,Joker is not LIFE. (A joker sitting in a group that
+ * already has the 4 natural cards is only an extra card.)
  */
 
-/** @param {number} naturalCount @param {{lifeMinNatural:number}} config */
+/** @param {number} naturalCount @param {{lifeMinNatural:number, lifeRule?:string}} config */
 function qualifiesAsLife(naturalCount, config) {
-  return naturalCount >= config.lifeMinNatural;
+  if (config.lifeRule === 'at-least') return naturalCount >= config.lifeMinNatural;
+  return naturalCount === config.lifeMinNatural;
 }
 
 /**

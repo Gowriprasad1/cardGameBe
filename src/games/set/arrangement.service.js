@@ -6,17 +6,23 @@ const { jokerType } = require('./joker.service');
 /**
  * Find the best way to arrange a hand into valid groups.
  *
- * Because every group is made of ONE rank, the search is small. For each rank
- * we either use ALL its natural cards in one group (more natural cards never
- * hurt) or none. A rank with only 1 or 2 natural cards needs wild cards to
- * reach 3 cards (and at least `minNaturalInJokerGroup` naturals). Wild cards
- * are a shared budget. Any wild card left over is attached to an existing group
- * as an extra card. At most 13 ranks, so we enumerate every subset.
+ * Every group is made of ONE rank, so the search is small. For each rank with
+ * natural cards we pick one of a few ways to use them (or leave them out):
+ *
+ *   all     one group with all n natural cards. It is a LIFE only if n is
+ *           exactly 4 (lifeRule 'exactly') or at least 4 ('at-least').
+ *   life4   (exactly-mode, n > 4) a LIFE of 4, and the other n-4 cards left out.
+ *   life4+  (exactly-mode, n > 4) a LIFE of 4 plus a second ordinary group made
+ *           of the other n-4 cards (3 or more, or 2 plus a wild card).
+ *
+ * A group of 1 or 2 natural cards needs wild cards to reach 3 cards (and at
+ * least `minNaturalInJokerGroup` naturals). Wild cards are one shared budget;
+ * spare ones attach to an existing group as extras.
  *
  * objective:
  *   'min-points'  fewest penalty points left over (default, used for scoring)
  *   'max-matched' most cards inside valid groups (used for 1 CARD TO WIN)
- * requireLife: when true, only arrangements with a LIFE group are considered.
+ * requireLife: only consider arrangements that contain a LIFE.
  *
  * @param {import('./deck.service').Card[]} hand
  * @param {{config: object, openJokerRank: string}} ctx
@@ -65,6 +71,42 @@ function isBetter(a, b, objective) {
   return a.matchedCount > b.matchedCount;
 }
 
+/** The ways the n natural cards of one rank can be used. */
+function alternativesFor(cards, config) {
+  const n = cards.length;
+  const exact = config.lifeRule !== 'at-least';
+  const lifeSize = config.lifeMinNatural;
+  // wild cards needed for an ordinary group of m natural cards (null: not possible)
+  const wildsFor = (m) => {
+    if (m >= config.minGroupSize) return 0;
+    return m >= config.minNaturalInJokerGroup ? config.minGroupSize - m : null;
+  };
+  const alts = [];
+  const all = wildsFor(n);
+  if (all !== null) {
+    const life = exact ? n === lifeSize : n >= lifeSize;
+    alts.push({ used: n, need: all, life, groups: [{ cards, need: all, isLife: life }] });
+  }
+  if (exact && n > lifeSize) {
+    const lifeCards = cards.slice(0, lifeSize);
+    const rest = cards.slice(lifeSize);
+    alts.push({ used: lifeSize, need: 0, life: true, groups: [{ cards: lifeCards, need: 0, isLife: true }] });
+    const restNeed = wildsFor(rest.length);
+    if (restNeed !== null) {
+      alts.push({
+        used: n,
+        need: restNeed,
+        life: true,
+        groups: [
+          { cards: lifeCards, need: 0, isLife: true },
+          { cards: rest, need: restNeed, isLife: exact ? rest.length === lifeSize : rest.length >= lifeSize },
+        ],
+      });
+    }
+  }
+  return alts;
+}
+
 function solvePool(naturals, wilds, ctx, objective, requireLife) {
   const { config } = ctx;
   const byRank = new Map();
@@ -72,63 +114,73 @@ function solvePool(naturals, wilds, ctx, objective, requireLife) {
     if (!byRank.has(card.rank)) byRank.set(card.rank, []);
     byRank.get(card.rank).push(card);
   }
-
-  // Ranks that can form a group, with the wild cards each one needs.
-  const options = [];
-  for (const rank of RANKS) {
+  const ranks = RANKS.filter((r) => byRank.has(r)).map((rank) => {
     const cards = byRank.get(rank);
-    if (!cards) continue;
-    const need = Math.max(0, config.minGroupSize - cards.length);
-    if (need > 0 && (cards.length < config.minNaturalInJokerGroup || need > wilds.length)) continue;
-    options.push({ rank, cards, need, value: config.cardValues[rank], life: cards.length >= config.lifeMinNatural });
-  }
+    return { rank, cards, value: config.cardValues[rank], alts: alternativesFor(cards, config) };
+  });
 
   const wildValue = config.unmatchedJokerValue;
   const totalNaturalPoints = naturals.reduce((sum, c) => sum + config.cardValues[c.rank], 0);
 
   let best = null;
-  const total = 1 << options.length;
-  for (let mask = 0; mask < total; mask += 1) {
+  const choice = new Array(ranks.length).fill(-1); // -1 = leave this rank out
+
+  const evaluate = () => {
     let needed = 0;
     let matchedNaturals = 0;
     let matchedPoints = 0;
     let hasLife = false;
     let groupCount = 0;
-    for (let i = 0; i < options.length; i += 1) {
-      if (!(mask & (1 << i))) continue;
-      const o = options[i];
-      needed += o.need;
-      matchedNaturals += o.cards.length;
-      matchedPoints += o.cards.length * o.value;
-      hasLife = hasLife || o.life;
-      groupCount += 1;
-    }
-    if (needed > wilds.length) continue;
-    if (requireLife && !hasLife) continue;
-
+    ranks.forEach((r, i) => {
+      if (choice[i] < 0) return;
+      const alt = r.alts[choice[i]];
+      needed += alt.need;
+      matchedNaturals += alt.used;
+      matchedPoints += alt.used * r.value;
+      hasLife = hasLife || alt.life;
+      groupCount += alt.groups.length;
+    });
+    if (requireLife && !hasLife) return;
     const wildsMatched = groupCount > 0 ? wilds.length : 0; // spare wilds attach to a group
     const points = totalNaturalPoints - matchedPoints + (groupCount > 0 ? 0 : wilds.length * wildValue);
-    const candidate = { mask, hasLife, points, matchedCount: matchedNaturals + wildsMatched };
+    const candidate = { hasLife, points, matchedCount: matchedNaturals + wildsMatched, choice: choice.slice() };
     if (!best || isBetter(candidate, best, objective)) best = candidate;
-  }
+  };
+
+  const walk = (i, wildsLeft) => {
+    if (i === ranks.length) {
+      evaluate();
+      return;
+    }
+    choice[i] = -1;
+    walk(i + 1, wildsLeft);
+    ranks[i].alts.forEach((alt, a) => {
+      if (alt.need > wildsLeft) return;
+      choice[i] = a;
+      walk(i + 1, wildsLeft - alt.need);
+    });
+    choice[i] = -1;
+  };
+  walk(0, wilds.length);
   if (!best) return null;
 
-  // Build the groups for the winning subset.
+  // Build the groups for the winning choice.
   const groups = [];
-  let wildIndex = 0;
   const unmatched = [];
-  options.forEach((o, i) => {
-    if (best.mask & (1 << i)) {
-      const cards = o.cards.slice();
-      for (let n = 0; n < o.need; n += 1) cards.push(wilds[wildIndex++]);
-      groups.push({ rank: o.rank, cards, isLife: o.life });
-    } else {
-      unmatched.push(...o.cards);
+  let wildIndex = 0;
+  ranks.forEach((r, i) => {
+    const alt = best.choice[i] >= 0 ? r.alts[best.choice[i]] : null;
+    if (!alt) {
+      unmatched.push(...r.cards);
+      return;
     }
+    for (const g of alt.groups) {
+      const cards = g.cards.slice();
+      for (let n = 0; n < g.need; n += 1) cards.push(wilds[wildIndex++]);
+      groups.push({ rank: r.rank, cards, isLife: g.isLife });
+    }
+    unmatched.push(...r.cards.slice(alt.used));
   });
-  // Ranks that could not form a group at all are unmatched too.
-  const optionRanks = new Set(options.map((o) => o.rank));
-  for (const [rank, cards] of byRank) if (!optionRanks.has(rank)) unmatched.push(...cards);
 
   const spare = wilds.slice(wildIndex);
   if (groups.length > 0) {

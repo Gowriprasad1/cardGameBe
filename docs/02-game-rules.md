@@ -19,11 +19,11 @@ Free, points-based entertainment game. Points have no monetary value. There is n
 | # | Rule | Decision |
 |---|---|---|
 | A | Valid group | At least 3 cards of one rank. |
-| B | LIFE (mandatory) | At least one group with **4 or more natural** cards of the same rank. A joker never counts toward LIFE. |
+| B | LIFE (mandatory) | At least one group of **exactly 4 natural** cards of the same rank. A joker never counts toward LIFE, and a fifth card of that rank cannot join the LIFE (`lifeRule: "exactly"`). A group of 5 or more of one rank is still a valid ordinary set. *This replaces the original line "8,8,8,8,8 = LIFE"; set `lifeRule: "at-least"` to bring the old behaviour back.* |
 | C1 | Printed joker | Always a wildcard in normal groups. |
 | C2 | **Open Joker** | The revealed card's **rank** is the Open Joker rank. Every card of that rank is a wildcard (`openJokerMode: "rank"`), exactly like a printed joker. They are never natural, so they cannot form or complete LIFE. See the open question below. |
 | C3 | **Joker in groups** | A normal group needs at least **2 natural** cards (`minNaturalInJokerGroup: 2`). `5,5,Joker` is valid. `5,Joker,Joker` is not. |
-| C4 | **Joker in a LIFE group** | A group with 4+ natural cards is LIFE. Any extra joker placed in it is allowed as a filler but is not counted toward LIFE (`jokerInLifeGroup: "extra-only"`). |
+| C4 | **Joker in a LIFE group** | A group with exactly 4 natural cards is LIFE. Any extra joker placed in it is allowed as a filler but is not counted toward LIFE (`jokerInLifeGroup: "extra-only"`). |
 | C5 | Joker reuse | A card belongs to exactly one group. |
 
 **Open question (not yet confirmed by the product owner).** Under C2, if the Open Joker rank is 7, a player holding four 7s cannot make LIFE with them, because those cards are wildcards. This is the strict reading of "jokers are not allowed in LIFE". The alternative is to let cards of the Open Joker rank count as natural in a group of their own rank. The engine will expose this as `openJokerNaturalInOwnRank` (default `false`) so either answer is a one-line change.
@@ -49,7 +49,7 @@ Allowed only on the player's own turn while holding exactly 13 cards: either rig
 
 1. Exactly 13 cards, each owned by the player.
 2. Every card used exactly once, none twice.
-3. At least one LIFE (4+ natural same rank).
+3. At least one LIFE (exactly 4 natural cards of one rank in one group).
 4. No joker counted toward LIFE.
 5. Every group has 3+ cards.
 6. Groups with jokers have at least 2 natural cards.
@@ -99,11 +99,25 @@ All amounts are computed by the backend and added to the cumulative score.
 
 ## 8. One Card To Win (notification only)
 
-Eligible when, among the player's 13 cards, **12 form a valid arrangement** (one LIFE of 4+ natural cards, every other group 3+, no joker in LIFE, jokers only in normal groups) and **exactly 1 card is stray**.
+The player is **waiting for one card**. The button is enabled when the player's 13 cards cannot be declared yet, but there is a card that, once drawn, lets them discard one card and declare a valid hand (a LIFE of exactly 4 natural cards, every other group of 3 or more, no joker in the LIFE).
 
-- The server verifies eligibility before accepting the toggle and re-checks after every hand change; if the hand stops qualifying it is switched off automatically.
-- All players see "1 CARD TO WIN!" on that player's seat. No card information is exposed.
+Examples (all verified by tests):
+
+- **Waiting for a LIFE.** 6,6,6 4,4,4 8,8,8 K,K and two 3s, with 3 as the open joker: drawing a 6, 4 or 8 makes the LIFE, K,K plus an open-joker 3 is a set, the spare 3 is thrown away.
+- **Sets only.** 4,4,4 5,5,5 6,6,6 7,7,7 and a lone 9: drawing a fourth 4, 5, 6 or 7 makes the LIFE and the 9 is thrown away.
+- **Almost there.** 7,7,7,7 8,8,8,8 9,9,9,9 and a K: drawing a 7, 8 or 9 (or a joker) and throwing away the K.
+
+Details:
+
+- A hand that can already be declared does not qualify (declare instead).
+- Only cards that can still exist count: a rank is skipped when the hand already holds every copy of it, and printed jokers only count while the hand holds fewer than the decks contain.
+- The server decides. It sends each player a private `oneCardEligible` flag, accepts the toggle only when it is true, and switches the notification off by itself when a discard breaks the hand.
+- All players see "1 CARD TO WIN!" on that player's seat. No card information is exposed (not even which card is awaited).
 - It does not affect scoring and can be turned off by the player.
+
+## 8b. Printed jokers on the open pile
+
+A printed joker that is thrown onto the open pile **cannot be taken** by the next player (the server answers `JOKER_NOT_PICKABLE`, and the view says `discardPickable: false`). A card of the open-joker number on the open pile **can** be taken. The closed pile is always available.
 
 ## 9. Full configuration (defaults)
 
@@ -114,6 +128,7 @@ Eligible when, among the player's 13 cards, **12 form a valid arrangement** (one
   "maxPlayers": 5,
   "minGroupSize": 3,
   "lifeMinNatural": 4,
+  "lifeRule": "exactly",
   "eliminationThreshold": 201,
   "firstDropPenalty": 20,
   "middleDropPenalty": 40,

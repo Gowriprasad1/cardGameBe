@@ -249,6 +249,8 @@ function doDraw(state, playerId, source, events, rng, { manual }) {
     card = round.drawPile.pop();
   } else {
     if (round.discardPile.length === 0) throw gameError('PILE_EMPTY');
+    // A printed joker thrown on the open pile cannot be picked up. Cards of the open-joker number can.
+    if (round.discardPile[round.discardPile.length - 1].joker) throw gameError('JOKER_NOT_PICKABLE');
     card = round.discardPile.pop();
   }
   round.hands[playerId].push(card);
@@ -294,7 +296,7 @@ function doDiscard(state, playerId, cardId, events) {
   emitHand(state, playerId, events);
 
   // The "1 CARD TO WIN" flag must always reflect the real hand.
-  if (round.oneCardToWin[playerId] && !checkOneCardToWin(hand, ctxOf(state)).eligible) {
+  if (round.oneCardToWin[playerId] && !checkOneCardToWin(hand, ctxOf(state), state.deckCount).eligible) {
     round.oneCardToWin[playerId] = false;
     emit(events, 'one-card-to-win', { playerId, active: false });
   }
@@ -397,7 +399,7 @@ function doOneCardToWin(state, playerId, active, events) {
   assertPlayerInRound(state, playerId);
   const { round } = state;
   if (active) {
-    const check = checkOneCardToWin(round.hands[playerId], ctxOf(state));
+    const check = checkOneCardToWin(round.hands[playerId], ctxOf(state), state.deckCount);
     if (!check.eligible) throw gameError('ONE_CARD_NOT_ELIGIBLE');
   }
   round.oneCardToWin[playerId] = Boolean(active);

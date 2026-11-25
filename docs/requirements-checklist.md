@@ -17,14 +17,14 @@ Test files: **D** `tests/unit/deck-shuffle-deal.test.js` · **G** `tests/unit/gr
 | 8 | Secure shuffle, Open Joker, deal, piles (§5) | `shuffle.service` (crypto), `card-distribution.service` · D | 3 | ✅ |
 | 9 | Never send opponent cards or the deck (§5, §18) | `view.js` + event addressing · E, I (checked on every step of round 1) | 3 | ✅ engine · socket layer in Phase 4 |
 | 10 | Group = 3+ same rank (§6A) | `set-validation.service` · G | 3 | ✅ |
-| 11 | LIFE = 4+ natural, no joker (§6B) | `life-validation.service` · G, S (mutation-checked) | 3 | ✅ |
+| 11 | LIFE = exactly 4 natural, no joker (§6B, clarified by the product owner) | `life-validation.service` · G, S (mutation-checked) | 3 | ✅ |
 | 12 | Printed + Open Joker wildcards in normal groups only (§6C) | `joker.service` · G | 3 | ✅ |
 | 13 | Draw/discard turn flow, no out-of-turn, no duplicates (§7) | `turn.service`, `game-engine` · E, I | 3 | ✅ |
 | 14 | Configurable turn timer; disconnect/reconnect (§7) | engine `timeout` action + platform timers, presence, `resume`, restart recovery · E, I, P, T | 3 / 4 | ✅ |
 | 15 | Declaration: all 8 checks (§8) | `declaration.service` · S, E | 3 | ✅ |
 | 16 | Invalid declaration = 40, once only, configurable policy (§8) | `game-engine` `doDeclare`, `chargePenalty` · S, E | 3 | ✅ |
 | 17 | First drop 20 / middle drop 40, never both (§9) | `scoring.service.dropPenalty`, `game-engine` `doDrop` · S, E | 3 | ✅ |
-| 18 | 1 CARD TO WIN eligibility and privacy (§10) | `one-card-to-win.service` · S, E | 3 | ✅ |
+| 18 | 1 CARD TO WIN eligibility and privacy (§10), "waiting for a card" rule | `one-card-to-win.service` · S, E, `rules-update.test.js` | 3 | ✅ |
 | 19 | Card values, unmatched-only scoring, min-points grouping (§11) | `arrangement.service`, `scoring.service` · S, I | 3 | ✅ |
 | 20 | No-LIFE hand policy configurable and documented (§11) | `set.config.js`, `02-game-rules.md` · S | 3 | ✅ |
 | 21 | Elimination at ≥ 201, history kept, spectators (§12) | `elimination.service`, `game-engine` · S, E, I | 3 | ✅ |
@@ -95,3 +95,4 @@ Test files: **D** `tests/unit/deck-shuffle-deal.test.js` · **G** `tests/unit/gr
 7. **Not done in Phase 5:** no Playwright/Cypress end-to-end suite (the two-player run was done by hand in the browser pane, with a scripted opponent); drag-and-drop card arrangement (tap-to-select is used instead); sound effects; the Open Joker/LIFE decision from item 1 is still open.
 8. **Neon verified (Phase 6/7).** `npm run smoke` passed against your Neon database and the production entrypoint ran against it. Test data was removed. **Your Neon password was pasted into chat: please reset it** (see `docs/07-deployment.md`).
 9. **Not deployed.** Render and Vercel are configured (`render.yaml`, `frontend/vercel.json`) but not deployed; follow `docs/07-deployment.md`. Not yet tried on the real hosts: the first Render cold start, WebSocket through Render's proxy, and the CSP against the real API domain.
+10. **Rules clarified by the product owner after Phase 7:** (a) a LIFE is exactly 4 natural cards (five 9s + three 6s + five 2s is not a winning hand); (b) 1 CARD TO WIN means waiting for one card that completes the hand (three examples added as tests); (c) a printed joker on the open pile cannot be taken, a card of the open-joker number can. Tests: `backend/tests/unit/rules-update.test.js`. Note: for the five 9s / three 6s / five 2s hand the engine scores the best arrangement for the player, a LIFE of four 2s leaving one 2 (2 points), not a LIFE of 9s leaving a 9.

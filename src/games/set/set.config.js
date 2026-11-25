@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = Object.freeze({
   maxPlayers: 5,
   minGroupSize: 3,
   lifeMinNatural: 4,
+  lifeRule: 'exactly', // 'exactly' (a LIFE is exactly 4 natural cards) | 'at-least' (4 or more)
   eliminationThreshold: 201,
   firstDropPenalty: 20,
   middleDropPenalty: 40,
@@ -41,6 +42,7 @@ const DEFAULT_CONFIG = Object.freeze({
 const ENUMS = {
   invalidDeclarationPolicy: ['remove-declarer', 'continue-declarer', 'end-round'],
   openJokerMode: ['rank'],
+  lifeRule: ['exactly', 'at-least'],
   jokerInLifeGroup: ['extra-only'],
   scoringObjective: ['min-points', 'max-matched'],
   noLifeHandPolicy: ['all-cards', 'unmatched-only'],

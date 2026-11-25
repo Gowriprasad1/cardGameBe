@@ -217,7 +217,8 @@ test('if everybody is out in one round the lowest cumulative score wins', () => 
 test('1 CARD TO WIN: 12 cards in valid groups with a natural LIFE and one stray card', () => {
   const r = checkOneCardToWin(cards('7H 7D 7C 7S 8H 8D 8C 8S 9H 9D 9C 9S KH'), ctx('A'));
   assert.equal(r.eligible, true);
-  assert.equal(r.strayCardId, 'D1-H-K');
+  for (const rank of ['7', '8', '9', 'JOKER']) assert.ok(r.waitingFor.includes(rank), `waiting for ${rank}`);
+  assert.ok(!r.waitingFor.includes('K'), 'a second K only makes a pair');
 });
 
 test('1 CARD TO WIN: a joker may fill a normal group but the stray card is still alone', () => {

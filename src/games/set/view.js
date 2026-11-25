@@ -76,6 +76,8 @@ function viewFor(state, playerId) {
       drawPileCount: round.drawPile.length,
       discardTop: top ? toClientCard(top, ctx) : null,
       discardCount: round.discardPile.length,
+      // a printed joker on top of the open pile cannot be taken
+      discardPickable: Boolean(top) && !top.joker,
     };
     const mine = round.hands[playerId];
     if (mine) {
@@ -86,7 +88,7 @@ function viewFor(state, playerId) {
         groups: round.groups[playerId],
         oneCardToWin: Boolean(round.oneCardToWin[playerId]),
         // Computed by the server so the client never has to judge a hand itself.
-        oneCardEligible: inRound && round.playerStatus[playerId] === 'playing' && checkOneCardToWin(mine, ctx).eligible,
+        oneCardEligible: inRound && round.playerStatus[playerId] === 'playing' && checkOneCardToWin(mine, ctx, state.deckCount).eligible,
         isMyTurn: myTurn,
         canDrop: myTurn && round.phase === PHASE.AWAITING_DRAW,
         canDeclare: myTurn && round.phase !== PHASE.AWAITING_DISCARD,

@@ -15,6 +15,7 @@ const MESSAGES = Object.freeze({
   ALREADY_DISCARDED: 'You have already discarded this turn',
   CARD_NOT_IN_HAND: 'That card is not in your hand',
   PILE_EMPTY: 'That pile is empty',
+  JOKER_NOT_PICKABLE: 'A printed joker on the open pile cannot be taken. Draw from the closed pile.',
   INVALID_SOURCE: 'Draw source must be "draw" or "discard"',
   INVALID_ARRANGEMENT: 'Arrangement must contain exactly your cards, each once',
   DROP_NOT_ALLOWED: 'You can only drop at the start of your turn, before drawing',

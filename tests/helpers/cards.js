@@ -131,6 +131,15 @@ function setDrawTop(state, token) {
   [zone[index], r.drawPile[topIndex]] = [r.drawPile[topIndex], zone[index]];
 }
 
+/** Put a specific card on top of the open (discard) pile, swapping with the current top. */
+function setDiscardTop(state, token) {
+  const target = card(token);
+  const r = state.round;
+  const topIndex = r.discardPile.length - 1;
+  const { zone, index } = findCard(state, target.id);
+  [zone[index], r.discardPile[topIndex]] = [r.discardPile[topIndex], zone[index]];
+}
+
 /**
  * Start an n-player game with deterministic randomness and optional rigging.
  * @returns {object} engine state
@@ -157,5 +166,5 @@ function playTurn(state, playerId, discardId, rng) {
 }
 
 module.exports = {
-  card, cards, ids, groupIds, ctx, seededRng, playersOf, scenario, rigHands, setOpenJoker, setDrawTop, act, playTurn,
+  card, cards, ids, groupIds, ctx, seededRng, playersOf, scenario, rigHands, setOpenJoker, setDrawTop, setDiscardTop, act, playTurn,
 };
