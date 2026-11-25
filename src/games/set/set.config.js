@@ -23,11 +23,12 @@ const DEFAULT_CONFIG = Object.freeze({
   invalidDeclarationPolicy: 'remove-declarer', // 'remove-declarer' | 'continue-declarer' | 'end-round'
   openJokerMode: 'rank',
   openJokerNaturalInOwnRank: false,
-  minNaturalInJokerGroup: 2,
+  minNaturalInJokerGroup: 1, // with a LIFE, 1 natural card + 2 jokers is a valid set
   jokerInLifeGroup: 'extra-only',
   scoringObjective: 'min-points', // 'min-points' | 'max-matched'
-  noLifeHandPolicy: 'all-cards', // 'all-cards' | 'unmatched-only'
+  noLifeHandPolicy: 'unmatched-only', // 'unmatched-only' (count only cards outside valid sets) | 'all-cards'
   unmatchedJokerValue: 0,
+  deadJokerValue: 2, // a joker is worth this when the hand has no LIFE (jokers only work with a LIFE)
   maxRoundPenalty: null,
   cardValues: Object.freeze({
     A: 10, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, J: 10, Q: 10, K: 10,
@@ -84,6 +85,7 @@ function resolveConfig(overrides = {}) {
   if (config.invalidDeclarationPenalty !== 40) fail('invalidDeclarationPenalty is fixed at 40');
   requireInt(config, 'minNaturalInJokerGroup', 1, 2);
   requireInt(config, 'unmatchedJokerValue', 0);
+  requireInt(config, 'deadJokerValue', 0);
   requireInt(config, 'turnTimerSeconds', 0);
   requireInt(config, 'autoDropAfterTimeouts', 1);
   requireInt(config, 'reconnectGraceSeconds', 0);

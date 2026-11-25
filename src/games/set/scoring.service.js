@@ -3,6 +3,7 @@
 const { findBestArrangement } = require('./arrangement.service');
 const { cardPoints } = require('./card-values');
 const { PENALTY_REASON } = require('./constants');
+const { jokerType } = require('./joker.service');
 
 /**
  * All scoring happens here, on the backend. Nothing the client sends is ever
@@ -15,13 +16,21 @@ function cap(points, config) {
 
 /**
  * Penalty for a player left holding `hand` when somebody else declares validly.
- * Only UNMATCHED cards count. Cards inside valid groups are worth 0, and so are
- * jokers (config.unmatchedJokerValue).
+ * Only cards that are NOT in a valid set count. Cards inside valid groups are
+ * worth 0 and so are jokers that are used in a group.
  *
- * A hand with no possible LIFE is "not eligible" and is handled by
- * config.noLifeHandPolicy:
- *   'all-cards'      every card counts (non-joker cards by value)
- *   'unmatched-only' best groups without the LIFE requirement, count the rest
+ * What a LIFE is for:
+ *  - WITH a LIFE (exactly 4 natural cards) jokers are usable. A single natural
+ *    card plus two jokers is a valid set, so the best grouping is found with the
+ *    jokers helping (e.g. 4,4,4,4 + 8,8,8 + K + 2 jokers + 2,J,Q = K and the two
+ *    jokers form a set, so only 2+J+Q = 22 count).
+ *  - WITHOUT a LIFE the jokers cannot be used. The natural cards still form
+ *    their valid sets and only the cards outside them count, plus every joker
+ *    at config.deadJokerValue (2). Example: four sets of three + an 8 = 8;
+ *    four sets of three + a joker = 2.
+ *
+ * config.noLifeHandPolicy 'all-cards' (not the default) instead counts every
+ * card of a hand that has no LIFE.
  *
  * @returns {{points: number, reason: string, hasLife: boolean,
  *            groups: {rank: string, cardIds: string[], isLife: boolean}[], unmatchedIds: string[]}}
@@ -41,13 +50,21 @@ function scoreHand(hand, ctx) {
   }
 
   if (config.noLifeHandPolicy === 'unmatched-only') {
-    const partial = findBestArrangement(hand, ctx, { objective: config.scoringObjective, requireLife: false });
+    // No LIFE: jokers are dead weight, the natural cards form whatever sets they can.
+    const isDeadJoker = (card) => {
+      const type = jokerType(card, ctx);
+      if (type === 'printed') return true;
+      return type === 'open' && !config.openJokerNaturalInOwnRank;
+    };
+    const dead = hand.filter(isDeadJoker);
+    const naturals = hand.filter((c) => !isDeadJoker(c));
+    const partial = findBestArrangement(naturals, ctx, { objective: config.scoringObjective, requireLife: false });
     return {
-      points: cap(partial.points, config),
+      points: cap(partial.points + dead.length * config.deadJokerValue, config),
       reason: PENALTY_REASON.NO_LIFE_HAND,
       hasLife: false,
       groups: partial.groups.map(toGroupSummary),
-      unmatchedIds: partial.unmatched.map((c) => c.id),
+      unmatchedIds: [...partial.unmatched, ...dead].map((c) => c.id),
     };
   }
 

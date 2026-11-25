@@ -138,19 +138,42 @@ test('the scorer picks the grouping with the fewest points left (joker goes to t
   assert.ok(!score.unmatchedIds.includes('D1-H-K'));
 });
 
-test('a hand with no possible LIFE: all-cards policy counts every non-joker card', () => {
+test('a hand with no possible LIFE: the optional all-cards policy counts every non-joker card', () => {
   const hand = cards('5H 5D 5C 6H 6D 6C 8H 8D 8C 9H 9D 9C JK1');
-  const score = scoreHand(hand, ctx('A'));
+  const score = scoreHand(hand, ctx('A', { noLifeHandPolicy: 'all-cards' }));
   assert.equal(score.hasLife, false);
   assert.equal(score.reason, 'no_life_hand');
   assert.equal(score.points, 15 + 18 + 24 + 27);
 });
 
-test('a hand with no possible LIFE: unmatched-only policy still counts only leftover cards', () => {
-  const hand = cards('5H 5D 5C 6H 6D 6C 8H 8D 8C 9H 9D 9C JK1');
-  const score = scoreHand(hand, ctx('A', { noLifeHandPolicy: 'unmatched-only' }));
+test('no LIFE: valid sets are not counted, only the cards outside them (default rule)', () => {
+  const score = scoreHand(cards('4H 4D 4C 5H 5D 5C 6H 6D 6C 9H 9D 9C 8H'), ctx('A'));
   assert.equal(score.hasLife, false);
-  assert.equal(score.points, 0);
+  assert.equal(score.reason, 'no_life_hand');
+  assert.equal(score.points, 8, 'four valid sets, only the 8 is counted');
+  assert.deepEqual(score.unmatchedIds, ['D1-H-8']);
+});
+
+test('no LIFE: jokers cannot be used, so a leftover joker counts 2', () => {
+  const score = scoreHand(cards('4H 4D 4C 5H 5D 5C 6H 6D 6C 9H 9D 9C JK1'), ctx('A'));
+  assert.equal(score.points, 2);
+  assert.deepEqual(score.unmatchedIds, ['D1-JK-1']);
+  // every dead joker counts, and a card of the open-joker number is a joker too
+  const two = scoreHand(cards('4H 4D 4C 5H 5D 5C 6H 6D 6C QH QD JK1 JK2'), ctx('Q'));
+  assert.equal(two.points, 8, 'JK1, JK2 and the two open-joker queens are four dead jokers: 4 x 2');
+});
+
+test('with a LIFE, jokers work: one natural card plus two jokers is a valid set', () => {
+  const hand = cards('3H 3D 3C 3S 8H 8D 8C JK1 JK2 2H KH JH QH');
+  const score = scoreHand(hand, ctx('A'));
+  assert.equal(score.hasLife, true);
+  assert.equal(score.points, 22, 'K + two jokers is a set; 2, J and Q are counted');
+  assert.deepEqual(score.unmatchedIds.sort(), ['D1-H-2', 'D1-H-J', 'D1-H-Q']);
+});
+
+test('with a LIFE the jokers go with the highest single card', () => {
+  const score = scoreHand(cards('3H 3D 3C 3S 8H 8D 8C JK1 JK2 2H 5H JH KH'), ctx('A'));
+  assert.equal(score.points, 17, 'jokers join the K; 2 + 5 + J are counted');
 });
 
 test('maxRoundPenalty caps a round penalty when configured', () => {
@@ -226,12 +249,11 @@ test('1 CARD TO WIN: a joker may fill a normal group but the stray card is still
   assert.equal(r.eligible, true);
 });
 
-test('1 CARD TO WIN: not eligible without a natural LIFE (joker cannot complete it)', () => {
-  const r = checkOneCardToWin(cards('7H 7D 7C JK1 8H 8D 8C JK2 9H 9D 9C 9S KH'), ctx('A'));
-  // 9,9,9,9 is a natural LIFE here, so build a case that really has none:
-  const noLife = checkOneCardToWin(cards('7H 7D 7C JK1 8H 8D 8C JK2 9H 9D 9C QH KH'), ctx('A'));
-  assert.equal(noLife.eligible, false);
-  assert.equal(r.eligible, true, 'sanity: the first hand does have a natural LIFE');
+test('1 CARD TO WIN: jokers help the sets, but the LIFE still needs a real fourth natural card', () => {
+  const r = checkOneCardToWin(cards('7H 7D 7C JK1 8H 8D 8C JK2 9H 9D 9C QH KH'), ctx(), 2);
+  assert.equal(r.eligible, true);
+  for (const rank of ['7', '8', '9']) assert.ok(r.waitingFor.includes(rank), `waiting for ${rank}`);
+  assert.ok(!r.waitingFor.includes('JOKER'), 'a joker can never be the 4th card of a LIFE');
 });
 
 test('1 CARD TO WIN: not eligible when the hand is already completely valid', () => {

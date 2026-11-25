@@ -22,7 +22,7 @@ Free, points-based entertainment game. Points have no monetary value. There is n
 | B | LIFE (mandatory) | At least one group of **exactly 4 natural** cards of the same rank. A joker never counts toward LIFE, and a fifth card of that rank cannot join the LIFE (`lifeRule: "exactly"`). A group of 5 or more of one rank is still a valid ordinary set. *This replaces the original line "8,8,8,8,8 = LIFE"; set `lifeRule: "at-least"` to bring the old behaviour back.* |
 | C1 | Printed joker | Always a wildcard in normal groups. |
 | C2 | **Open Joker** | The revealed card's **rank** is the Open Joker rank. Every card of that rank is a wildcard (`openJokerMode: "rank"`), exactly like a printed joker. They are never natural, so they cannot form or complete LIFE. See the open question below. |
-| C3 | **Joker in groups** | A normal group needs at least **2 natural** cards (`minNaturalInJokerGroup: 2`). `5,5,Joker` is valid. `5,Joker,Joker` is not. |
+| C3 | **Joker in groups** | Jokers only work once the hand has a LIFE (see section 6). With a LIFE, a normal group needs at least **1 natural** card (`minNaturalInJokerGroup: 1`): `5,5,Joker` and `K,Joker,Joker` are valid sets. Jokers alone are not a group. *(Earlier default was 2 natural cards; set `minNaturalInJokerGroup: 2` to restore it.)* |
 | C4 | **Joker in a LIFE group** | A group with exactly 4 natural cards is LIFE. Any extra joker placed in it is allowed as a filler but is not counted toward LIFE (`jokerInLifeGroup: "extra-only"`). |
 | C5 | Joker reuse | A card belongs to exactly one group. |
 
@@ -76,17 +76,28 @@ The 40-point amount is fixed and is not configurable. The penalty can be applied
 
 The player leaves the round's turn order immediately. A player can never receive both drop penalties in the same round, and a dropped player cannot also be charged for an invalid declaration in that round.
 
-## 6. Scoring
+## 6. Scoring (counting the points)
 
-Card values (configurable): 2–10 face value, J/Q/K/A = 10, validly used joker = 0.
+Card values (configurable): 2–10 face value, J/Q/K/A = 10.
 
-After a valid declaration, each other remaining player's hand is scored on **unmatched cards only**:
+After a valid declaration each other player still in the round is counted. **Only cards that are not in a valid set count**; cards inside valid sets are worth 0. The counter always finds the best grouping for the player (fewest points left, `scoringObjective: "min-points"`).
 
-- The scorer searches all groupings and chooses the one with the **lowest remaining points** (`scoringObjective: "min-points"`).
-- Cards in valid groups are not counted. Jokers used in valid groups count 0.
-- An unmatched joker counts 0 (`unmatchedJokerValue: 0`).
-- **Hand with no LIFE:** treated as not eligible. Default `noLifeHandPolicy: "all-cards"`: every non-joker card counts. Alternatives: `"unmatched-only"`. A per-round cap is available (`maxRoundPenalty: null` = no cap).
-- Dropped players keep their drop penalty and are not scored on cards. Players who were removed for an invalid declaration keep their 40.
+**What the LIFE is for.** The LIFE decides whether jokers work:
+
+- **With a LIFE** (exactly 4 natural cards of one rank) jokers are usable: one natural card plus two jokers is a valid set, a joker next to a pair is a set, and so on. Jokers used in groups count 0.
+- **Without a LIFE** the jokers cannot be used. The natural cards still form their valid sets and only the cards outside those sets count. **Every joker counts `deadJokerValue` (2 points)**. A card of the Open Joker number is a joker too, so it counts 2 as well. (`noLifeHandPolicy: "unmatched-only"`. The old "count every card of a no-LIFE hand" is still available as `"all-cards"`.)
+
+Examples (all tested):
+
+| Hand | Count |
+|---|---|
+| Four valid sets of three + one 8, no LIFE | **8** (the sets do not count) |
+| Four valid sets of three + one joker, no LIFE | **2** (the joker cannot be used without a LIFE) |
+| LIFE of four, one set of three, two jokers, and 2, K, J, Q | **22**: the jokers join the K as a set, 2 + J + Q count |
+| Five 9s, three 6s, five 2s | **2**: LIFE of four 2s, the five 9s as a normal set, one 2 left |
+
+- Dropped players keep their drop penalty and are not counted on cards. Players removed for an invalid declaration keep their 40.
+- A per-round cap is available (`maxRoundPenalty: null` = no cap).
 
 All amounts are computed by the backend and added to the cumulative score.
 
@@ -136,11 +147,12 @@ A printed joker that is thrown onto the open pile **cannot be taken** by the nex
   "invalidDeclarationPolicy": "remove-declarer",
   "openJokerMode": "rank",
   "openJokerNaturalInOwnRank": false,
-  "minNaturalInJokerGroup": 2,
+  "minNaturalInJokerGroup": 1,
   "jokerInLifeGroup": "extra-only",
   "scoringObjective": "min-points",
-  "noLifeHandPolicy": "all-cards",
+  "noLifeHandPolicy": "unmatched-only",
   "unmatchedJokerValue": 0,
+  "deadJokerValue": 2,
   "maxRoundPenalty": null,
   "cardValues": { "A": 10, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "J": 10, "Q": 10, "K": 10 },
   "turnTimerSeconds": 60,

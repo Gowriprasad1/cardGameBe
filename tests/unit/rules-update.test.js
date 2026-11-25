@@ -87,8 +87,8 @@ test('the five 9s / three 6s / five 2s hand is waiting too (a 6, a 9, a 2, or a 
 test('not eligible: nothing can complete the hand with one card', () => {
   // three sets and four unrelated cards
   assert.equal(checkOneCardToWin(cards('4H 4D 4C 5H 5D 5C 6H 6D 6C 8H 10D QC KS'), ctx(), 2).eligible, false);
-  // no LIFE possible: jokers cannot make one
-  assert.equal(checkOneCardToWin(cards('7H 7D 7C JK1 8H 8D 8C JK2 9H 9D 9C QH KH'), ctx(), 2).eligible, false);
+  // only pairs: no single card can turn this into sets and a LIFE
+  assert.equal(checkOneCardToWin(cards('2H 2D 3H 3D 4H 4D 5H 5D 6H 6D 7H 7D 9C'), ctx(), 2).eligible, false);
 });
 
 test('not eligible when the hand is already complete (declare instead)', () => {
@@ -99,16 +99,15 @@ test('only evaluated with 13 cards', () => {
   assert.equal(checkOneCardToWin(cards('4H 4D 4C 5H 5D 5C 6H 6D 6C 7H 7D 7C 9H QH'), ctx(), 2).eligible, false);
 });
 
-test('the number of decks decides which cards can still be drawn (jokers run out)', () => {
-  const hand = cards('7H 7D 7C 7S 8H 8D 8C 9H 9D 9C KH JK1 JK2');
-  // one deck: both printed jokers are already in this hand, so a joker cannot be drawn
-  const oneDeck = checkOneCardToWin(hand, ctx(), 1);
+test('the number of decks decides which cards can still be drawn', () => {
+  const hand = cards('4H 4D 4C 4S 5H 5D 5C 5S 6H 6D 6C 6S KH');
+  // two decks: a fifth 4, 5 or 6 still exists, throw the K away
   const twoDecks = checkOneCardToWin(hand, ctx(), 2);
+  for (const rank of ['4', '5', '6']) assert.ok(twoDecks.waitingFor.includes(rank), rank);
+  // one deck: all four 4s, 5s and 6s are already in this hand, so only a joker-type card can still arrive
+  const oneDeck = checkOneCardToWin(hand, ctx(), 1);
   assert.equal(oneDeck.eligible, true);
-  assert.ok(oneDeck.waitingFor.includes('8'));
-  assert.ok(!oneDeck.waitingFor.includes('7'), 'all four 7s are already in this hand');
-  assert.ok(!oneDeck.waitingFor.includes('JOKER'));
-  assert.ok(twoDecks.waitingFor.includes('JOKER'));
+  assert.deepEqual(oneDeck.waitingFor, ['A', 'JOKER']);
 });
 
 test('the server tells the client when the button may be used', () => {
