@@ -1,0 +1,29 @@
+{
+  "name": "cards-game-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time multiplayer card platform (SET game first). Free points-based entertainment, no money.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "migrate": "node scripts/migrate.js",
+    "test": "node --test",
+    "test:unit": "node --test \"tests/unit/**/*.test.js\"",
+    "test:integration": "node --test \"tests/integration/**/*.test.js\"",
+    "dev:local": "node scripts/dev-server.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "pg": "^8.23.1",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.6.0",
+    "@electric-sql/pglite-socket": "^0.3.0",
+    "socket.io-client": "^4.8.4"
+  }
+}

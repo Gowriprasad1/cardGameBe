@@ -1,0 +1,26 @@
+# Render Blueprint for the backend (Express + Socket.IO).
+# Create it with: Render dashboard > New > Blueprint > pick this repository (cardGameBe).
+# The frontend is deployed separately on Vercel (repository cardGameFe, see docs/07-deployment.md).
+services:
+  - type: web
+    name: set-game-api
+    runtime: node
+    # Keep this in the same region as your Neon project (Neon us-east-2 = Ohio).
+    region: ohio
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/server.js
+    healthCheckPath: /api/live
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: AUTO_MIGRATE
+        value: "true"
+      # Secrets and site-specific values: Render asks for these when the blueprint is created.
+      - key: DATABASE_URL
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false
