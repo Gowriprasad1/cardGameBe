@@ -163,6 +163,22 @@ test('no LIFE: jokers cannot be used, so a leftover joker counts 2', () => {
   assert.equal(two.points, 8, 'JK1, JK2 and the two open-joker queens are four dead jokers: 4 x 2');
 });
 
+test('no LIFE with loose cards: only the loose cards count, the jokers count 0', () => {
+  // three sets + 5,5 + two jokers, and no four of a kind anywhere: 5 + 5 = 10
+  const score = scoreHand(cards('2H 2D 2C 4H 4D 4C 6H 6D 6C 5H 5D JK1 JK2'), ctx('A'));
+  assert.equal(score.hasLife, false);
+  assert.equal(score.points, 10);
+  assert.deepEqual(score.unmatchedIds.sort(), ['D1-D-5', 'D1-H-5']);
+});
+
+test('five or six of one number still contain a LIFE: the extras join another set (with jokers)', () => {
+  const six = scoreHand(cards('2H 2D 2C 4H 4D 4C 5H 5D 5C 5H/2 5D/2 5C/2 JK1'), ctx('K'));
+  assert.equal(six.hasLife, true);
+  assert.equal(six.points, 0, '5555 is the LIFE and 5,5 + joker is a set');
+  const five = scoreHand(cards('2H 2D 2C 4H 4D 4C 5H 5D 5C 5H/2 5D/2 JK1 JK2'), ctx('K'));
+  assert.equal(five.points, 0, '5555 is the LIFE and 5 + two jokers is a set');
+});
+
 test('with a LIFE, jokers work: one natural card plus two jokers is a valid set', () => {
   const hand = cards('3H 3D 3C 3S 8H 8D 8C JK1 JK2 2H KH JH QH');
   const score = scoreHand(hand, ctx('A'));

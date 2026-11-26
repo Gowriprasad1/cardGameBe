@@ -59,12 +59,16 @@ function scoreHand(hand, ctx) {
     const dead = hand.filter(isDeadJoker);
     const naturals = hand.filter((c) => !isDeadJoker(c));
     const partial = findBestArrangement(naturals, ctx, { objective: config.scoringObjective, requireLife: false });
+    // The jokers count only when they are all that is left: every natural card sits in a valid
+    // set, so the jokers are the only reason the hand is not complete (e.g. four sets + a joker = 2).
+    // With loose natural cards, only those cards count and the jokers are 0 (e.g. 5,5 + 2 jokers = 10).
+    const jokersCount = partial.unmatched.length === 0;
     return {
-      points: cap(partial.points + dead.length * config.deadJokerValue, config),
+      points: cap(partial.points + (jokersCount ? dead.length * config.deadJokerValue : 0), config),
       reason: PENALTY_REASON.NO_LIFE_HAND,
       hasLife: false,
       groups: partial.groups.map(toGroupSummary),
-      unmatchedIds: [...partial.unmatched, ...dead].map((c) => c.id),
+      unmatchedIds: [...partial.unmatched, ...(jokersCount ? dead : [])].map((c) => c.id),
     };
   }
 

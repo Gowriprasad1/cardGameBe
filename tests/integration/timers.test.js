@@ -104,3 +104,24 @@ test('next-round-ready from everyone starts the round immediately', async () => 
     await srv.stop();
   }
 });
+
+test('turn timer: picking a card does NOT restart the countdown, and neither does someone else rearranging cards', async () => {
+  const srv = await startTestServer({ env: { TURN_TIMER_SECONDS: '60', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000' } });
+  try {
+    const { players, live } = await startRoom(srv);
+    const currentId = live().state.round.currentPlayerId;
+    const mover = players.find((p) => p.userId === currentId);
+    const other = players.find((p) => p.userId !== currentId);
+    const deadline = mover.client.lastState().turnDeadlineAt;
+    assert.ok(deadline > Date.now() + 55000);
+
+    await new Promise((r) => setTimeout(r, 1200)); // time passes before the player picks
+    const groups = other.client.lastState().me.hand.map((c) => [c.id]).reverse();
+    assert.equal((await other.client.emit('arrange-cards', { requestId: `arr-${Date.now()}-x1`, groups })).ok, true);
+    const drawn = await mover.client.emit('draw-card', { requestId: `drw-${Date.now()}-x2`, source: 'draw' });
+    assert.equal(drawn.ok, true);
+    assert.equal(drawn.data.view.turnDeadlineAt, deadline, 'still the same deadline after the pick');
+  } finally {
+    await srv.stop();
+  }
+});

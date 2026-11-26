@@ -85,7 +85,7 @@ After a valid declaration each other player still in the round is counted. **Onl
 **What the LIFE is for.** The LIFE decides whether jokers work:
 
 - **With a LIFE** (exactly 4 natural cards of one rank) jokers are usable: one natural card plus two jokers is a valid set, a joker next to a pair is a set, and so on. Jokers used in groups count 0.
-- **Without a LIFE** the jokers cannot be used. The natural cards still form their valid sets and only the cards outside those sets count. **Every joker counts `deadJokerValue` (2 points)**. A card of the Open Joker number is a joker too, so it counts 2 as well. (`noLifeHandPolicy: "unmatched-only"`. The old "count every card of a no-LIFE hand" is still available as `"all-cards"`.)
+- **Without a LIFE** the jokers cannot be used. The natural cards still form their valid sets and only the cards outside those sets count. The jokers count **only when every natural card is in a valid set**: then each joker counts `deadJokerValue` (2 points), e.g. four sets + a joker = 2. If any natural card is left loose, only the loose cards count and the jokers count 0, e.g. three sets + 5,5 + two jokers = 10. A card of the Open Joker number is a joker too. Five or six cards of one number (two decks) still contain a LIFE: four of them are the LIFE and the extras can join another set. (`noLifeHandPolicy: "unmatched-only"`. The old "count every card of a no-LIFE hand" is still available as `"all-cards"`.)
 
 Examples (all tested):
 
