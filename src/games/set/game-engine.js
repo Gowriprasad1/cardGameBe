@@ -360,12 +360,8 @@ function createEngine(rules) {
 
     if (check.valid) {
       emit(events, 'declaration-result', { playerId, valid: true, penalty: 0 });
-      finishRound(state, {
-        winnerId: playerId,
-        endReason: END_REASON.VALID_DECLARATION,
-        scoreRemaining: true,
-        declaredGroups: check.groups.map((g) => ({ cardIds: g.cardIds, rank: g.rank, isLife: Boolean(g.isLife), kind: g.kind || null })),
-      }, events);
+      const declaredGroups = check.groups.map((g) => ({ cardIds: g.cardIds, rank: g.rank, isLife: Boolean(g.isLife), kind: g.kind || null }));
+      startShow(state, playerId, declaredGroups, events);
       return;
     }
 
@@ -390,6 +386,126 @@ function createEngine(rules) {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // after a valid declaration: the others arrange their cards and submit
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A valid declaration wins the round. Before it is scored, every other player
+   * still in the round gets config.showWindowSeconds to arrange their cards and
+   * submit (the "show"). Their points are still the best their hand allows:
+   * arranging can never cost them anything. With no window, or nobody else
+   * left in the round, the round is scored at once.
+   */
+  function startShow(state, declarerId, declaredGroups, events) {
+    const { round } = state;
+    const others = playingIds(round).filter((id) => id !== declarerId);
+    const seconds = state.config.showWindowSeconds || 0;
+    if (seconds === 0 || others.length === 0) {
+      finishRound(state, {
+        winnerId: declarerId, endReason: END_REASON.VALID_DECLARATION, scoreRemaining: true, declaredGroups,
+      }, events);
+      return;
+    }
+    round.phase = PHASE.SHOWING;
+    round.currentPlayerId = null;
+    round.turnNo += 1; // a turn timer armed before the declaration is now stale
+    round.lastDrawnId = null;
+    round.show = { declarerId, groups: declaredGroups, pending: others, submitted: [] };
+    const ctx = ctxOf(state);
+    emit(events, 'show-started', {
+      roundNo: round.no,
+      declarerId,
+      seconds,
+      waitingFor: others,
+      // the winning hand is public: everyone sees it while they arrange their own cards
+      reveal: {
+        cards: round.hands[declarerId].map((c) => toClientCard(c, ctx)),
+        groups: declaredGroups.map((g) => ({ cardIds: g.cardIds, isLife: Boolean(g.isLife), kind: g.kind || null })),
+      },
+    });
+  }
+
+  function assertShowing(round) {
+    if (round.phase !== PHASE.SHOWING) throw gameError('NOT_SHOWING');
+  }
+
+  /** A player finished arranging after somebody's valid declaration. */
+  function doSubmitShow(state, playerId, groups, events) {
+    const { round } = state;
+    assertShowing(round);
+    assertPlayerInRound(state, playerId);
+    if (!round.show.pending.includes(playerId)) {
+      throw gameError(round.show.submitted.includes(playerId) ? 'ALREADY_SUBMITTED' : 'NOT_IN_ROUND');
+    }
+    if (groups !== undefined) doArrange(state, playerId, groups);
+    round.show.pending = round.show.pending.filter((id) => id !== playerId);
+    round.show.submitted.push(playerId);
+    emit(events, 'show-submitted', { playerId });
+    emitHand(state, playerId, events);
+    if (round.show.pending.length === 0) finishShow(state, events);
+  }
+
+  /** Everyone submitted, or time is up: score the round. */
+  function finishShow(state, events) {
+    const { show } = state.round;
+    finishRound(state, {
+      winnerId: show.declarerId, endReason: END_REASON.VALID_DECLARATION, scoreRemaining: true, declaredGroups: show.groups,
+    }, events);
+  }
+
+  // ---------------------------------------------------------------------------
+  // leaving the game for good (the Exit button)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The player leaves the game for good, with no penalty: whatever they were
+   * holding this round is not counted and their total stays as it was. The
+   * round carries on without them (or ends if one player is left in it), and
+   * the game ends if only one player remains in it.
+   */
+  function doLeave(state, playerId, events) {
+    const player = state.players[playerId];
+    if (!player) throw gameError('NOT_IN_ROOM');
+    if (player.status === PLAYER_STATUS.LEFT) throw gameError('PLAYER_LEFT');
+    if (player.status === PLAYER_STATUS.ELIMINATED) throw gameError('PLAYER_ELIMINATED');
+
+    const { round } = state;
+    const inRound = state.stage === STAGE.IN_ROUND && round.order.includes(playerId)
+      && round.playerStatus[playerId] === ROUND_STATUS.PLAYING;
+
+    // The declarer already won this round: score it first, then let them go.
+    if (inRound && round.phase === PHASE.SHOWING && round.show.declarerId === playerId) finishShow(state, events);
+
+    player.status = PLAYER_STATUS.LEFT;
+    emit(events, 'player-left-game', { playerId, nickname: player.nickname });
+
+    if (state.stage === STAGE.IN_ROUND && inRound) {
+      round.playerStatus[playerId] = ROUND_STATUS.LEFT;
+      round.oneCardToWin[playerId] = false;
+      chargePenalty(round, playerId, PENALTY_REASON.LEFT, 0);
+      if (round.phase === PHASE.SHOWING) {
+        round.show.pending = round.show.pending.filter((id) => id !== playerId);
+        if (round.show.pending.length === 0) finishShow(state, events);
+        return;
+      }
+      const remaining = playingIds(round);
+      if (remaining.length <= 1) {
+        finishRound(state, {
+          winnerId: remaining[0] || null, endReason: END_REASON.LAST_PLAYER_STANDING, scoreRemaining: false,
+        }, events);
+        return;
+      }
+      if (round.currentPlayerId === playerId) advanceTurn(state, playerId, events);
+      return;
+    }
+    if (state.stage === STAGE.BETWEEN_ROUNDS) {
+      // nobody left to play against: the game is over
+      const end = resolveGameEnd({ players: state.players, seatOrder: state.seatOrder, newlyEliminated: [] });
+      if (end.finished) completeGame(state, end.winnerId, events);
+    }
+  }
+
   function doArrange(state, playerId, groups) {
     assertPlayerInRound(state, playerId);
     const { round } = state;
@@ -406,6 +522,7 @@ function createEngine(rules) {
   function doOneCardToWin(state, playerId, active, events) {
     assertPlayerInRound(state, playerId);
     const { round } = state;
+    if (round.phase === PHASE.SHOWING) throw gameError('SHOW_IN_PROGRESS');
     if (active) {
       const check = rules.checkOneCardToWin(round.hands[playerId], ctxOf(state), state.deckCount);
       if (!check.eligible) throw gameError('ONE_CARD_NOT_ELIGIBLE');
@@ -500,27 +617,31 @@ function createEngine(rules) {
 
     const end = resolveGameEnd({ players: state.players, seatOrder: state.seatOrder, newlyEliminated });
     if (end.finished) {
-      state.stage = STAGE.COMPLETED;
-      state.winnerId = end.winnerId;
-      emitScoreboard(state, events);
-      emit(events, 'game-completed', {
-        winnerId: end.winnerId,
-        winnerNickname: state.players[end.winnerId].nickname,
-        totalRounds: state.roundNo,
-        finalScoreboard: scoreboardOf(state),
-        eliminatedHistory: state.seatOrder
-          .filter((id) => state.players[id].status === PLAYER_STATUS.ELIMINATED)
-          .map((id) => ({
-            playerId: id,
-            nickname: state.players[id].nickname,
-            cumulativeScore: state.players[id].score,
-            eliminatedInRound: state.players[id].eliminatedInRound,
-          })),
-      });
+      completeGame(state, end.winnerId, events);
     } else {
       state.stage = STAGE.BETWEEN_ROUNDS;
       emitScoreboard(state, events);
     }
+  }
+
+  function completeGame(state, winnerId, events) {
+    state.stage = STAGE.COMPLETED;
+    state.winnerId = winnerId;
+    emitScoreboard(state, events);
+    emit(events, 'game-completed', {
+      winnerId,
+      winnerNickname: state.players[winnerId].nickname,
+      totalRounds: state.roundNo,
+      finalScoreboard: scoreboardOf(state),
+      eliminatedHistory: state.seatOrder
+        .filter((id) => state.players[id].status === PLAYER_STATUS.ELIMINATED)
+        .map((id) => ({
+          playerId: id,
+          nickname: state.players[id].nickname,
+          cumulativeScore: state.players[id].score,
+          eliminatedInRound: state.players[id].eliminatedInRound,
+        })),
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -546,6 +667,9 @@ function createEngine(rules) {
       if (next.stage !== STAGE.BETWEEN_ROUNDS) throw gameError('NOT_BETWEEN_ROUNDS');
       const active = eligibleIds(next.players, next.seatOrder);
       startRound(next, nextDealer(next.seatOrder, next.round.dealerId, active), rng, events);
+    } else if (action.type === 'leave') {
+      // allowed during a round and between rounds
+      doLeave(next, playerId, events);
     } else {
       if (next.stage !== STAGE.IN_ROUND) throw gameError('ROUND_NOT_ACTIVE');
       const { round } = next;
@@ -587,6 +711,14 @@ function createEngine(rules) {
         case 'timeout':
           doTimeout(next, playerId, events, rng);
           break;
+        case 'submit-show':
+          doSubmitShow(next, playerId, action.groups, events);
+          break;
+        case 'show-timeout':
+          // the show window ran out: score the round with everyone's cards as they are
+          assertShowing(round);
+          finishShow(next, events);
+          break;
         default:
           throw gameError('UNKNOWN_ACTION');
       }
@@ -598,16 +730,23 @@ function createEngine(rules) {
   }
 
   /**
-   * What the platform should schedule next: the active player's turn deadline.
-   * @returns {{playerId: string, seconds: number, roundNo: number, turnNo: number}|null}
+   * What the platform should schedule next: the active player's turn deadline,
+   * or the end of the show window after a valid declaration.
+   * @returns {{kind: 'turn'|'show', playerId: string|null, seconds: number, roundNo: number, turnNo: number}|null}
    */
   function nextTimer(state) {
-    if (state.stage !== STAGE.IN_ROUND || state.config.turnTimerSeconds === 0) return null;
+    if (state.stage !== STAGE.IN_ROUND) return null;
+    const { round, config } = state;
+    if (round.phase === PHASE.SHOWING) {
+      return { kind: 'show', playerId: null, seconds: config.showWindowSeconds || 0, roundNo: round.no, turnNo: round.turnNo };
+    }
+    if (config.turnTimerSeconds === 0) return null;
     return {
-      playerId: state.round.currentPlayerId,
-      seconds: state.config.turnTimerSeconds,
-      roundNo: state.round.no,
-      turnNo: state.round.turnNo,
+      kind: 'turn',
+      playerId: round.currentPlayerId,
+      seconds: config.turnTimerSeconds,
+      roundNo: round.no,
+      turnNo: round.turnNo,
     };
   }
 

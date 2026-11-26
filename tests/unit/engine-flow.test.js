@@ -530,7 +530,7 @@ test('1 CARD TO WIN switches itself off when a discard breaks the hand, stays on
 test('nextTimer tells the platform whose turn timer to run', () => {
   const state = scenario({ n: 2 });
   assert.deepEqual(nextTimer(state), {
-    playerId: state.round.currentPlayerId, seconds: 60, roundNo: 1, turnNo: 1,
+    kind: 'turn', playerId: state.round.currentPlayerId, seconds: 60, roundNo: 1, turnNo: 1,
   });
   const noTimer = scenario({ n: 2, config: { turnTimerSeconds: 0 } });
   assert.equal(nextTimer(noTimer), null);

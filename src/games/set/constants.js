@@ -8,6 +8,8 @@ const PHASE = Object.freeze({
   AWAITING_DRAW: 'awaiting-draw',
   AWAITING_DISCARD: 'awaiting-discard',
   AWAITING_END_TURN: 'awaiting-end-turn',
+  /** someone made a valid declaration; the others arrange their cards and submit */
+  SHOWING: 'showing',
 });
 
 /** Stage of the whole game. */
@@ -21,6 +23,8 @@ const STAGE = Object.freeze({
 const PLAYER_STATUS = Object.freeze({
   ACTIVE: 'active',
   ELIMINATED: 'eliminated',
+  /** pressed Exit: out of the game for good */
+  LEFT: 'left',
 });
 
 /** Player status inside one round. Mirrors round_players.status in the database. */
@@ -30,6 +34,7 @@ const ROUND_STATUS = Object.freeze({
   DROPPED_MIDDLE: 'dropped_middle',
   REMOVED_INVALID: 'removed_invalid_declaration',
   WINNER: 'winner',
+  LEFT: 'left',
 });
 
 /** Mirrors game_rounds.end_reason. */
@@ -48,6 +53,8 @@ const PENALTY_REASON = Object.freeze({
   MIDDLE_DROP: 'middle_drop',
   INVALID_DECLARATION: 'invalid_declaration',
   NO_PENALTY: 'no_penalty',
+  /** left the game during the round: no points */
+  LEFT: 'left',
 });
 
 module.exports = { RANKS, SUITS, PHASE, STAGE, PLAYER_STATUS, ROUND_STATUS, END_REASON, PENALTY_REASON };

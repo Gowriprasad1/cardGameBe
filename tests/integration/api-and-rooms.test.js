@@ -229,18 +229,22 @@ test('only the host can start, and at least 2 players are needed', async () => {
   assert.equal(code(await host.client.emit('start-game', {})), 'ROOM_STARTED');
 });
 
-test('after the start the player list is frozen and nobody can leave mid-game', async () => {
+test('after the start the player list is frozen; leaving mid-game is the Exit (for good, the game goes on or ends)', async () => {
   const host = await srv.player('Frozen Host');
   const guest = await srv.player('Frozen Guest');
+  const third = await srv.player('Frozen Third');
   const late = await srv.player('Frozen Late');
   const { roomCode } = (await host.client.emit('create-room', {})).data;
   await guest.client.emit('join-room', { roomCode });
+  await third.client.emit('join-room', { roomCode });
   await host.client.emit('start-game', {});
 
   assert.equal(code(await late.client.emit('join-room', { roomCode })), 'ROOM_STARTED');
   const preview = await srv.api('GET', `/api/rooms/${roomCode}`);
   assert.deepEqual([preview.json.data.status, preview.json.data.joinable], ['in_progress', false]);
-  assert.equal(code(await guest.client.emit('leave-room', {})), 'GAME_IN_PROGRESS');
+  // with three players, one leaving does not end the game
+  assert.equal((await guest.client.emit('leave-room', {})).ok, true);
+  assert.equal(code(await guest.client.emit('join-room', { roomCode })), 'LEFT_GAME');
   const status = (await srv.db.query('SELECT status FROM game_rooms WHERE room_code = $1', [roomCode])).rows[0].status;
   assert.equal(status, 'in_progress');
 });

@@ -36,6 +36,8 @@ const DEFAULT_CONFIG = Object.freeze({
   turnTimerSeconds: 60,
   autoDropAfterTimeouts: 3,
   reconnectGraceSeconds: 90,
+  // after a valid declaration the other players get this long to arrange their cards and submit (0 = no wait)
+  showWindowSeconds: 0,
   reshuffleOnEmpty: true,
   tieBreak: 'lowest-score',
 });
@@ -89,6 +91,7 @@ function resolveConfig(overrides = {}) {
   requireInt(config, 'turnTimerSeconds', 0);
   requireInt(config, 'autoDropAfterTimeouts', 1);
   requireInt(config, 'reconnectGraceSeconds', 0);
+  requireInt(config, 'showWindowSeconds', 0, 300);
   if (config.maxRoundPenalty !== null) requireInt(config, 'maxRoundPenalty', 0);
   if (typeof config.openJokerNaturalInOwnRank !== 'boolean') fail('openJokerNaturalInOwnRank must be boolean');
   if (typeof config.reshuffleOnEmpty !== 'boolean') fail('reshuffleOnEmpty must be boolean');

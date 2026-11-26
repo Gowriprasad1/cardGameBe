@@ -54,6 +54,7 @@ class GameSessionService {
       config: {
         turnTimerSeconds: this.env.turnTimerSeconds,
         reconnectGraceSeconds: this.env.reconnectGraceSeconds,
+        showWindowSeconds: this.env.showWindowSeconds ?? 0,
         // what the host chose when creating the room (e.g. points at which a player is out)
         ...(room.config || {}),
       },
@@ -89,6 +90,21 @@ class GameSessionService {
       const outcome = await this.#commit(live, { ...action, playerId: userId }, requestId);
       if (!outcome.duplicate && key) this.#remember(live, key);
       return { duplicate: outcome.duplicate, view: this.#viewOf(live, userId) };
+    });
+  }
+
+  /**
+   * A player pressed Exit during the game: they leave it for good, with no
+   * penalty. An eliminated player (only watching) simply stops watching.
+   */
+  leave(roomCode, userId) {
+    return this.queue.run(`room:${roomCode}`, async () => {
+      const live = this.live.get(roomCode);
+      if (!live || live.finished) return { left: true };
+      const player = live.state.players[userId];
+      if (!player || player.status !== 'active') return { left: true };
+      await this.#commit(live, { type: 'leave', playerId: userId });
+      return { left: true };
     });
   }
 
@@ -141,6 +157,7 @@ class GameSessionService {
     const view = live.module.viewFor(live.state, userId);
     const plan = live.timerPlan;
     view.turnDeadlineAt = plan && plan.kind === 'turn' ? plan.deadlineAt : null;
+    view.showDeadlineAt = plan && plan.kind === 'show' ? plan.deadlineAt : null;
     return view;
   }
 
@@ -177,14 +194,20 @@ class GameSessionService {
     const { room, state } = live;
     const code = room.code;
     const plan = this.#plan(live);
-    const deadlineAt = plan && plan.kind === 'turn' ? Date.now() + plan.seconds * 1000 : null;
+    // Still the same turn (or the same show window)? Keep its running timer: drawing, rearranging
+    // cards or submitting must never hand anyone a fresh deadline.
+    const current = live.timerPlan;
+    const sameTimer = plan && current && plan.kind === current.kind && plan.roundNo === current.roundNo
+      && plan.turnNo === current.turnNo && plan.playerId === current.playerId && plan.seconds === current.seconds;
+    const deadlineAt = sameTimer ? current.deadlineAt
+      : plan && (plan.kind === 'turn' || plan.kind === 'show') ? Date.now() + plan.seconds * 1000 : null;
 
     if (state.stage === 'completed') {
       live.finished = true;
       clearTimeout(live.timer);
       live.timer = null;
       live.timerPlan = null;
-    } else {
+    } else if (!sameTimer) {
       // Armed first, so the views below carry the deadline of the turn that just began.
       this.#arm(live, plan, deadlineAt);
     }
@@ -195,7 +218,11 @@ class GameSessionService {
       if (event.to === 'all') this.emitter.toRoom(code, event.name, payload);
       else this.emitter.toUser(event.to, event.name, payload);
     }
-    for (const p of room.players) this.emitter.toUser(p.userId, 'game-state', this.#viewOf(live, p.userId));
+    // players who pressed Exit are gone: they get no more updates
+    for (const p of room.players) {
+      if (state.players[p.userId] && state.players[p.userId].status === 'left') continue;
+      this.emitter.toUser(p.userId, 'game-state', this.#viewOf(live, p.userId));
+    }
 
     if (live.finished && this.onFinished) this.onFinished(code);
   }
@@ -205,6 +232,9 @@ class GameSessionService {
     const { state } = live;
     if (state.stage === 'in-round') {
       const base = live.module.nextTimer(state);
+      if (base && base.kind === 'show') {
+        return base.seconds ? { kind: 'show', seconds: base.seconds, roundNo: base.roundNo, turnNo: base.turnNo } : null;
+      }
       const current = state.round.currentPlayerId;
       let seconds = base ? base.seconds : 0;
       // With the turn timer off, a disconnected player must not freeze the table forever.
@@ -236,6 +266,11 @@ class GameSessionService {
           || state.round.turnNo !== plan.turnNo || state.round.currentPlayerId !== plan.playerId;
         if (stale) return;
         await this.#commit(live, { type: 'timeout', playerId: plan.playerId });
+      } else if (plan.kind === 'show') {
+        const stale = state.stage !== 'in-round' || state.round.no !== plan.roundNo
+          || state.round.turnNo !== plan.turnNo || state.round.phase !== 'showing';
+        if (stale) return;
+        await this.#commit(live, { type: 'show-timeout' });
       } else {
         if (state.stage !== 'between-rounds' || state.roundNo !== plan.roundNo) return;
         await this.#commit(live, { type: 'start-next-round' });

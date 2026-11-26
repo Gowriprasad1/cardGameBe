@@ -17,16 +17,39 @@ const { createServer } = require('../src/server');
 const { createPgliteDb } = require('./pglite-db');
 const { createGameRegistry } = require('../src/platform/game-registry');
 const setGame = require('../src/games/set');
+const rummyGame = require('../src/games/rummy');
+
+/** A winning SET hand: a LIFE (7777) and three sets. */
+const WINNING_SET_HAND = '7H 7D 7C 7S 8H 8D 8C 9H 9D 9C 10H 10D 10C';
 
 /**
- * Local testing only: DEV_ELIMINATION_THRESHOLD=20 makes games end after a few
- * rounds, so the elimination and winner screens can be seen quickly.
+ * Local testing only (production never runs this file):
+ *  - DEV_ELIMINATION_THRESHOLD=20 makes games end after a few rounds, so the
+ *    elimination and winner screens can be seen quickly.
+ *  - DEV_WINNING_HAND=1 deals the room's host a winning hand in round 1 of a
+ *    SET game, with the first turn: press Sort, then Declare, to see what the
+ *    other players get after a valid declaration (arrange + Submit).
  */
 function devRegistry() {
   const threshold = Number(process.env.DEV_ELIMINATION_THRESHOLD);
-  if (!threshold) return undefined;
-  const game = { ...setGame, createGame: (args) => setGame.createGame({ ...args, config: { ...args.config, eliminationThreshold: threshold } }) };
-  return createGameRegistry([game]);
+  const winningHand = process.env.DEV_WINNING_HAND === '1';
+  if (!threshold && !winningHand) return undefined;
+  const game = {
+    ...setGame,
+    createGame: (args) => {
+      const created = setGame.createGame(threshold ? { ...args, config: { ...args.config, eliminationThreshold: threshold } } : args);
+      if (winningHand) {
+        // eslint-disable-next-line global-require -- test helper, only needed in this mode
+        const { rigHands, setOpenJoker } = require('../tests/helpers/cards');
+        const host = created.state.seatOrder[0];
+        setOpenJoker(created.state, 'A');
+        rigHands(created.state, { [host]: WINNING_SET_HAND });
+        created.state.round.currentPlayerId = host;
+      }
+      return created;
+    },
+  };
+  return createGameRegistry([game, rummyGame]);
 }
 
 /**

@@ -40,6 +40,11 @@ async function setRoomStatus(db, { roomId, status }) {
   );
 }
 
+/** A player pressed Exit during the game: their seat is kept (for the results) but marked "left". */
+async function setRoomPlayerLeft(db, { roomPlayerId }) {
+  await db.query("UPDATE room_players SET status = 'left', is_connected = FALSE WHERE id = $1 AND status = 'active'", [roomPlayerId]);
+}
+
 async function setConnected(db, { roomPlayerId, isConnected }) {
   await db.query('UPDATE room_players SET is_connected = $2 WHERE id = $1', [roomPlayerId, isConnected]);
 }
@@ -66,5 +71,5 @@ async function loadOpenRooms(db) {
 }
 
 module.exports = {
-  getGameTypeId, insertRoom, insertRoomPlayer, deleteRoomPlayer, setHost, setRoomStatus, setConnected, loadOpenRooms,
+  getGameTypeId, insertRoom, insertRoomPlayer, deleteRoomPlayer, setHost, setRoomStatus, setConnected, setRoomPlayerLeft, loadOpenRooms,
 };

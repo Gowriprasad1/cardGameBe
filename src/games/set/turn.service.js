@@ -16,6 +16,7 @@ function assertPlayerInRound(state, playerId) {
   const player = state.players[playerId];
   if (!player) throw gameError('NOT_IN_ROOM');
   if (player.status === PLAYER_STATUS.ELIMINATED) throw gameError('PLAYER_ELIMINATED');
+  if (player.status === PLAYER_STATUS.LEFT) throw gameError('PLAYER_LEFT');
   const round = state.round;
   if (!round || !round.order.includes(playerId) || round.playerStatus[playerId] !== ROUND_STATUS.PLAYING) {
     throw gameError('NOT_IN_ROUND');

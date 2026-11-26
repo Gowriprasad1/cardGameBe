@@ -16,6 +16,7 @@ const CATALOG = Object.freeze({
   NOT_IN_ROOM: [403, 'You are not in a room'],
   ALREADY_IN_ROOM: [409, 'You are already in another room'],
   GAME_IN_PROGRESS: [409, 'You cannot leave a game in progress'],
+  LEFT_GAME: [409, 'You left this game and cannot rejoin it'],
   FORBIDDEN: [403, 'You are not allowed to do that'],
   PAYLOAD_TOO_LARGE: [413, 'Payload too large'],
   RATE_LIMITED: [429, 'Too many requests, slow down'],

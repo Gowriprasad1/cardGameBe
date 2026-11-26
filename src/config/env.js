@@ -48,6 +48,8 @@ function loadEnv(source = process.env) {
     roundBreakSeconds: toInt(source, 'ROUND_BREAK_SECONDS', 10, { max: 600 }),
     /** 0 turns the turn timer off */
     turnTimerSeconds: toInt(source, 'TURN_TIMER_SECONDS', 60, { max: 600 }),
+    /** after a valid declaration, how long the other players get to arrange their cards and submit (0 = score at once) */
+    showWindowSeconds: toInt(source, 'SHOW_WINDOW_SECONDS', 30, { max: 300 }),
     /** with the turn timer off, how long a disconnected player's turn waits before it is auto-played */
     reconnectGraceSeconds: toInt(source, 'RECONNECT_GRACE_SECONDS', 90, { min: 1, max: 3600 }),
     /** a room with nobody connected for this long is abandoned */

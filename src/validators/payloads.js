@@ -24,6 +24,7 @@ module.exports = {
   endTurn: { requestId },
   arrangeCards: { requestId, groups },
   declareGame: { requestId, groups },
+  submitShow: { requestId, groups: { ...groups, optional: true } },
   playerDrop: { requestId },
   oneCardToWin: { requestId, active: { type: 'boolean', default: true } },
   roomCodeParam: { code: roomCode },

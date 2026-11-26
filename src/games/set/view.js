@@ -84,6 +84,14 @@ function createViewFor(rules) {
         discardCount: round.discardPile.length,
         // a printed joker on top of the open pile cannot be taken
         discardPickable: Boolean(top) && !top.joker,
+        // after a valid declaration: the shown (winning) hand is public, and who still has to submit
+        show: inRound && round.phase === PHASE.SHOWING && round.show ? {
+          declarerId: round.show.declarerId,
+          waitingFor: round.show.pending.slice(),
+          submitted: round.show.submitted.slice(),
+          cards: round.hands[round.show.declarerId].map((c) => toClientCard(c, ctx)),
+          groups: round.show.groups.map((g) => ({ cardIds: g.cardIds, isLife: Boolean(g.isLife), kind: g.kind || null })),
+        } : null,
       };
       const mine = round.hands[playerId];
       if (mine) {
@@ -98,6 +106,8 @@ function createViewFor(rules) {
           isMyTurn: myTurn,
           canDrop: myTurn && round.phase === PHASE.AWAITING_DRAW,
           canDeclare: myTurn && round.phase !== PHASE.AWAITING_DISCARD,
+          // somebody showed a valid hand: arrange your cards and submit before the time runs out
+          canSubmitShow: inRound && round.phase === PHASE.SHOWING && Boolean(round.show) && round.show.pending.includes(playerId),
           turnsTaken: round.turnsTaken[playerId],
         };
       }

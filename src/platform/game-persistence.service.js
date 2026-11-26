@@ -106,13 +106,15 @@ class GamePersistence {
     const roundStarts = next.roundNo > prev.roundNo;
     const roundEnds = Boolean(prev.round && next.round && prev.round.no === next.round.no && !prev.round.result && next.round.result);
     const gameEnds = next.stage === 'completed' && prev.stage !== 'completed';
+    const someoneLeft = type === 'leave' && next.players[playerId] && next.players[playerId].status === 'left';
 
     // The common case (a draw, a discard, a drop...) is ONE statement and ONE round trip.
-    if (!roundStarts && !roundEnds && !gameEnds) return check(await record(this.db)) || { duplicate: false };
+    if (!roundStarts && !roundEnds && !gameEnds && !someoneLeft) return check(await record(this.db)) || { duplicate: false };
 
     return this.db.withTransaction(async (tx) => {
       const early = check(await record(tx));
       if (early) return early;
+      if (someoneLeft) await rooms.setRoomPlayerLeft(tx, { roomPlayerId: rp(playerId) });
       if (roundStarts) await this.persistRoundStart(tx, sessionId, next, rp);
       if (roundEnds) await this.persistRoundEnd(tx, { sessionId, state: next, rp });
       if (gameEnds) await this.persistGameEnd(tx, { room, sessionId, startedAt, state: next, events, rp });

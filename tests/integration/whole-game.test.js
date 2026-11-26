@@ -147,7 +147,7 @@ test('the real pg driver: migrations, a whole game and a restart all work throug
   const pg = await startPgOverSocket();
   try {
     const applied = await migrate(pg.db);
-    assert.deepEqual(applied, ['001_init', '002_rummy']);
+    assert.deepEqual(applied, ['001_init', '002_rummy', '003_exit_game']);
     assert.deepEqual(await migrate(pg.db), [], 'running migrations again is a no-op');
 
     const first = await startTestServer({ db: pg.db, env: { TURN_TIMER_SECONDS: '0', SOCKET_BURST: '1000', SOCKET_RATE_PER_SECOND: '1000', KEEP_FULL_GAME_DATA: '1' } });

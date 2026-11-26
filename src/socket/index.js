@@ -125,6 +125,8 @@ function attachSocket(httpServer, container) {
     on('end-turn', schemas.endTurn, ({ requestId }) => game({ type: 'end-turn' }, requestId));
     on('arrange-cards', schemas.arrangeCards, ({ requestId, groups }) => game({ type: 'arrange', groups }, requestId));
     on('declare-game', schemas.declareGame, ({ requestId, groups }) => game({ type: 'declare', groups }, requestId));
+    // after somebody's valid declaration: my cards are arranged, count me in
+    on('submit-show', schemas.submitShow, ({ requestId, groups }) => game({ type: 'submit-show', groups }, requestId));
     on('player-drop', schemas.playerDrop, ({ requestId }) => game({ type: 'drop' }, requestId));
     on('one-card-to-win', schemas.oneCardToWin, ({ requestId, active }) => (
       game({ type: 'one-card-to-win', active }, requestId)));

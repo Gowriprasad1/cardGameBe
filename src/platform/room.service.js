@@ -134,6 +134,7 @@ class RoomService {
       const room = this.rooms.get(rawCode);
       if (!room) throw appError('ROOM_NOT_FOUND');
       const existing = room.players.find((p) => p.userId === user.id);
+      if (existing && existing.status === 'left') throw appError('LEFT_GAME');
       if (existing) {
         // Already seated: joining again is just reconnecting. Never a duplicate entry.
         this.userRoom.set(user.id, room.code);
@@ -162,6 +163,9 @@ class RoomService {
     return this.queue.run(`user:${user.id}`, async () => {
       const code = this.userRoom.get(user.id);
       if (!code) return { left: false };
+      const current = this.rooms.get(code);
+      // During a game: Exit. Not inside the room queue, because the game applies it through that queue itself.
+      if (current && current.status === 'in_progress') return this.#leaveGame(user, current);
       return this.queue.run(`room:${code}`, async () => {
         const room = this.rooms.get(code);
         if (!room) {
@@ -197,6 +201,17 @@ class RoomService {
         return { left: true, roomCode: code };
       });
     });
+  }
+
+  /** Exit during a game: out for good, no penalty; the others play on. */
+  async #leaveGame(user, room) {
+    await this.gameSessions.leave(room.code, user.id);
+    const seat = room.players.find((p) => p.userId === user.id);
+    if (seat && seat.status === 'active') seat.status = 'left'; // an eliminated player who stops watching stays "eliminated"
+    this.userRoom.delete(user.id);
+    room.lastActivityAt = Date.now();
+    this.emitter.toRoom(room.code, 'room-updated', this.publicRoom(room));
+    return { left: true, roomCode: room.code };
   }
 
   startGame(user) {
@@ -286,7 +301,7 @@ class RoomService {
         })),
       };
       this.rooms.set(room.code, room);
-      for (const p of room.players) this.userRoom.set(p.userId, room.code);
+      for (const p of room.players) if (p.status !== 'left') this.userRoom.set(p.userId, room.code);
       const session = sessionByRoom.get(row.id);
       if (row.status === 'in_progress') {
         if (session && session.state_snapshot) {
@@ -314,7 +329,7 @@ class RoomService {
     }
     const limit = this.env.roomIdleMinutes * 60 * 1000;
     for (const room of [...this.rooms.values()]) {
-      const anyoneHere = room.players.some((p) => this.presence.isConnected(p.userId));
+      const anyoneHere = room.players.some((p) => p.status !== 'left' && this.presence.isConnected(p.userId));
       if (anyoneHere || now - room.lastActivityAt < limit) continue;
       await this.queue.run(`room:${room.code}`, () => (room.status === 'finished' ? this.#evict(room) : this.#abandon(room)));
     }
