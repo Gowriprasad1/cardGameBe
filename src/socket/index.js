@@ -97,6 +97,13 @@ function attachSocket(httpServer, container) {
       return result;
     });
 
+    // single player: a room with mawa, the computer, started at once
+    on('create-solo-room', schemas.createRoom, async ({ gameType, points }) => {
+      const result = await rooms.createSoloRoom(user, gameType, { eliminationPoints: points });
+      socket.join(`room:${result.roomCode}`);
+      return result;
+    });
+
     on('join-room', schemas.joinRoom, async ({ roomCode: code }) => {
       const result = await rooms.joinRoom(user, code);
       socket.join(`room:${result.roomCode}`);

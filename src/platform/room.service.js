@@ -6,6 +6,7 @@ const sessionsRepo = require('../db/repositories/sessions.repository');
 const { isUniqueViolation } = require('../db/pool');
 const usersRepo = require('../db/repositories/users.repository');
 const { generateRoomCode } = require('../utils/ids');
+const { BOT_NAME } = require('../bots/bot-driver.service');
 
 const GUEST_RETENTION_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -90,6 +91,7 @@ class RoomService {
           isHost: p.userId === room.hostUserId,
           isConnected: this.presence.isConnected(p.userId),
           status: p.status,
+          isBot: Boolean(p.isBot),
         })),
     };
   }
@@ -127,6 +129,26 @@ class RoomService {
       }
       throw new Error('could not allocate a room code');
     });
+  }
+
+  /**
+   * Single player: a room with the player and mawa, the computer, started at
+   * once. mawa plays by the same rules, timer and hidden cards as a person.
+   */
+  async createSoloRoom(user, gameType = 'SET', options = {}) {
+    const { roomCode } = await this.createRoom(user, gameType, options);
+    await this.queue.run(`room:${roomCode}`, async () => {
+      const room = this.rooms.get(roomCode);
+      if (!room) throw appError('ROOM_NOT_FOUND');
+      const bot = await this.db.withTransaction(async (tx) => {
+        const created = await usersRepo.insertBot(tx, { nickname: BOT_NAME });
+        const roomPlayerId = await roomsRepo.insertRoomPlayer(tx, { roomId: room.id, userId: created.id, seatNo: 1 });
+        return { userId: created.id, nickname: created.nickname, seat: 1, roomPlayerId, status: 'active', isBot: true };
+      });
+      room.players.push(bot);
+      this.presence.markBot(bot.userId);
+    });
+    return this.startGame(user);
   }
 
   joinRoom(user, rawCode) {
@@ -297,11 +319,14 @@ class RoomService {
         config: row.config || {},
         lastActivityAt: Date.now(),
         players: row.players.map((p) => ({
-          userId: p.user_id, nickname: p.nickname, seat: p.seat_no, roomPlayerId: p.id, status: p.status,
+          userId: p.user_id, nickname: p.nickname, seat: p.seat_no, roomPlayerId: p.id, status: p.status, isBot: Boolean(p.is_bot),
         })),
       };
       this.rooms.set(room.code, room);
-      for (const p of room.players) if (p.status !== 'left') this.userRoom.set(p.userId, room.code);
+      for (const p of room.players) {
+        if (p.isBot) this.presence.markBot(p.userId);
+        else if (p.status !== 'left') this.userRoom.set(p.userId, room.code);
+      }
       const session = sessionByRoom.get(row.id);
       if (row.status === 'in_progress') {
         if (session && session.state_snapshot) {
@@ -329,7 +354,8 @@ class RoomService {
     }
     const limit = this.env.roomIdleMinutes * 60 * 1000;
     for (const room of [...this.rooms.values()]) {
-      const anyoneHere = room.players.some((p) => p.status !== 'left' && this.presence.isConnected(p.userId));
+      // the computer player does not keep a room alive on its own
+      const anyoneHere = room.players.some((p) => !p.isBot && p.status !== 'left' && this.presence.isConnected(p.userId));
       if (anyoneHere || now - room.lastActivityAt < limit) continue;
       await this.queue.run(`room:${room.code}`, () => (room.status === 'finished' ? this.#evict(room) : this.#abandon(room)));
     }

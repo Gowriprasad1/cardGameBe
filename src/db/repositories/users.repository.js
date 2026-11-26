@@ -8,6 +8,18 @@ async function insertGuest(db, { nickname, tokenHash }) {
   return rows[0];
 }
 
+/**
+ * A computer player for one room. Its token is random and never handed out,
+ * so nobody can sign in as it.
+ */
+async function insertBot(db, { nickname }) {
+  const { rows } = await db.query(
+    "INSERT INTO users (nickname, token_hash, is_bot) VALUES ($1, 'bot:' || gen_random_uuid()::text, TRUE) RETURNING id, nickname",
+    [nickname],
+  );
+  return rows[0];
+}
+
 async function findByTokenHash(db, tokenHash) {
   const { rows } = await db.query('SELECT id, nickname FROM users WHERE token_hash = $1', [tokenHash]);
   return rows[0] || null;
@@ -34,4 +46,4 @@ async function purgeStaleGuests(db, days) {
   return rowCount;
 }
 
-module.exports = { insertGuest, findByTokenHash, touch, purgeStaleGuests };
+module.exports = { insertGuest, insertBot, findByTokenHash, touch, purgeStaleGuests };

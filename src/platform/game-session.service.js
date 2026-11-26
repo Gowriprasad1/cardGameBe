@@ -29,6 +29,8 @@ class GameSessionService {
     this.live = new Map(); // roomCode -> live session
     /** @type {((roomCode: string) => void)|null} set by the room service */
     this.onFinished = null;
+    /** @type {((live: object) => void)|null} called after every change; the computer player (mawa) listens here */
+    this.onUpdate = null;
   }
 
   has(roomCode) {
@@ -71,6 +73,7 @@ class GameSessionService {
     room.sessionId = row.id;
     const live = this.#register(room, module, row.id, row.started_at, row.state_snapshot);
     this.#arm(live, this.#plan(live));
+    if (this.onUpdate) this.onUpdate(live);
     return live;
   }
 
@@ -116,8 +119,9 @@ class GameSessionService {
       if (!live.room.players.some((p) => p.userId === userId)) throw appError('NOT_IN_ROOM');
       if (live.state.stage !== 'between-rounds') return { started: false };
       live.ready.add(userId);
+      // the computer player never needs time to read the results
       const waitingFor = live.room.players.filter((p) => (
-        live.state.players[p.userId].status === 'active' && this.presence.isConnected(p.userId) && !live.ready.has(p.userId)
+        !p.isBot && live.state.players[p.userId].status === 'active' && this.presence.isConnected(p.userId) && !live.ready.has(p.userId)
       ));
       if (waitingFor.length > 0) return { started: false };
       await this.#commit(live, { type: 'start-next-round' });
@@ -225,6 +229,7 @@ class GameSessionService {
     }
 
     if (live.finished && this.onFinished) this.onFinished(code);
+    if (this.onUpdate) this.onUpdate(live);
   }
 
   /** What timer, if any, the current state needs. */

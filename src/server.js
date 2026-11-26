@@ -33,7 +33,8 @@ async function createServer({ env = loadEnv(), db, logger = createLogger({ level
     httpServer,
     io,
     listen: (port = env.port) => new Promise((resolve) => {
-      httpServer.listen(port, () => resolve(httpServer.address().port));
+      // HOST is optional (e.g. 0.0.0.0 to share a port with another local app that uses only ::1)
+      httpServer.listen(port, env.host, () => resolve(httpServer.address().port));
     }),
     async close() {
       await container.stop();

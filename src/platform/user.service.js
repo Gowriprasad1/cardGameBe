@@ -2,6 +2,8 @@
 
 const users = require('../db/repositories/users.repository');
 const { generateToken, hashToken } = require('../utils/ids');
+const { appError } = require('../constants/errors');
+const { BOT_NAME } = require('../bots/bot-driver.service');
 
 /** Guest identity: a nickname plus an opaque token kept in the browser. */
 class UserService {
@@ -10,6 +12,8 @@ class UserService {
   }
 
   async createGuest(nickname) {
+    // "mawa" is the computer player's name; no person can take it
+    if (String(nickname).trim().toLowerCase() === BOT_NAME) throw appError('NAME_RESERVED');
     const token = generateToken();
     const user = await users.insertGuest(this.db, { nickname, tokenHash: hashToken(token) });
     return { userId: user.id, nickname: user.nickname, token };

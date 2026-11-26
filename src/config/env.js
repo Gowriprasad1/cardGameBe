@@ -40,6 +40,8 @@ function loadEnv(source = process.env) {
     nodeEnv,
     isProduction: nodeEnv === 'production',
     port: toInt(source, 'PORT', 3000, { min: 0, max: 65535 }),
+    /** network address to listen on; unset = every address (the normal case) */
+    host: source.HOST || undefined,
     databaseUrl: source.DATABASE_URL || null,
     clientOrigins,
     logLevel: source.LOG_LEVEL || 'info',
@@ -48,6 +50,8 @@ function loadEnv(source = process.env) {
     roundBreakSeconds: toInt(source, 'ROUND_BREAK_SECONDS', 10, { max: 600 }),
     /** 0 turns the turn timer off */
     turnTimerSeconds: toInt(source, 'TURN_TIMER_SECONDS', 60, { max: 600 }),
+    /** speed of the computer player's "thinking" pauses: 1 = like a person, 0 = instant (tests) */
+    botDelayScale: Number(source.BOT_DELAY_SCALE ?? 1) >= 0 ? Number(source.BOT_DELAY_SCALE ?? 1) : 1,
     /** after a valid declaration, how long the other players get to arrange their cards and submit (0 = score at once) */
     showWindowSeconds: toInt(source, 'SHOW_WINDOW_SECONDS', 30, { max: 300 }),
     /** with the turn timer off, how long a disconnected player's turn waits before it is auto-played */

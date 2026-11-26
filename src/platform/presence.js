@@ -4,6 +4,12 @@
 class Presence {
   constructor() {
     this.sockets = new Map(); // userId -> Set(socketId)
+    this.bots = new Set(); // computer players: always at the table
+  }
+
+  /** A computer player (mawa) has no socket but is always present. */
+  markBot(userId) {
+    this.bots.add(userId);
   }
 
   /** @returns {boolean} true if this is the user's first connection */
@@ -28,7 +34,7 @@ class Presence {
   }
 
   isConnected(userId) {
-    return this.sockets.has(userId);
+    return this.sockets.has(userId) || this.bots.has(userId);
   }
 }
 

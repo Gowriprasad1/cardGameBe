@@ -25,6 +25,7 @@ async function startTestServer({ db, env = {} } = {}) {
     TURN_TIMER_SECONDS: '0',
     // most tests want a valid declaration scored at once; show-phase tests turn the window on
     SHOW_WINDOW_SECONDS: '0',
+    BOT_DELAY_SCALE: '0',
     ROUND_BREAK_SECONDS: '600',
     RATE_LIMIT_API: '100000',
     RATE_LIMIT_STRICT: '100000',

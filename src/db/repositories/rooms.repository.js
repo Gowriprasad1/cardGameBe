@@ -62,7 +62,7 @@ async function loadOpenRooms(db) {
   if (rooms.length === 0) return [];
   const placeholders = rooms.map((_, i) => `$${i + 1}`).join(',');
   const players = (await db.query(
-    `SELECT rp.id, rp.room_id, rp.user_id, rp.seat_no, rp.status, u.nickname
+    `SELECT rp.id, rp.room_id, rp.user_id, rp.seat_no, rp.status, u.nickname, u.is_bot
        FROM room_players rp JOIN users u ON u.id = rp.user_id
       WHERE rp.room_id IN (${placeholders}) ORDER BY rp.seat_no`,
     rooms.map((r) => r.id),
