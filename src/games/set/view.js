@@ -1,7 +1,9 @@
 'use strict';
 
 const { STAGE, PHASE } = require('./constants');
-const { toClientCard, scoreboardOf } = require('./game-engine');
+const {
+  toClientCard, scoreboardOf, topIsPickable, canSeeJoker,
+} = require('./game-engine');
 
 /**
  * The ONLY projection of game state that may leave the server.
@@ -11,7 +13,8 @@ const { toClientCard, scoreboardOf } = require('./game-engine');
  *  - for everyone else: hand COUNT only
  *  - draw pile: COUNT only (never its contents or order)
  *  - discard pile: top card and count
- *  - the open joker card, which is face-up by the rules
+ *  - the open joker card, which is face-up by the rules (closed joker: only
+ *    once the player has a LIFE)
  *  - results of finished rounds (hands are revealed only at round end)
  *
  * It never includes opponents' cards, the draw pile, or the engine's
@@ -27,7 +30,9 @@ const { toClientCard, scoreboardOf } = require('./game-engine');
 function createViewFor(rules) {
   return function viewFor(state, playerId) {
     const { round } = state;
-    const ctx = { config: state.config, openJokerRank: round ? round.openJokerRank : null };
+    // closed joker: a player without a LIFE gets no trace of the open joker (no rank, no card, no flags)
+    const jokerVisible = canSeeJoker(state, playerId);
+    const ctx = { config: state.config, openJokerRank: round && jokerVisible ? round.openJokerRank : null };
     const inRound = state.stage === STAGE.IN_ROUND;
 
     const view = {
@@ -44,6 +49,7 @@ function createViewFor(rules) {
         middleDropPenalty: state.config.middleDropPenalty,
         invalidDeclarationPenalty: state.config.invalidDeclarationPenalty,
         turnTimerSeconds: state.config.turnTimerSeconds,
+        jokerMode: state.config.jokerMode || 'open',
       },
       scoreboard: scoreboardOf(state),
       history: state.history.map((r) => ({
@@ -77,8 +83,9 @@ function createViewFor(rules) {
         currentPlayerId: inRound ? round.currentPlayerId : null,
         phase: inRound ? round.phase : null,
         turnNo: round.turnNo,
-        openJokerRank: round.openJokerRank,
-        openJokerCard: toClientCard(round.openJokerCard, ctx),
+        openJokerRank: jokerVisible ? round.openJokerRank : null,
+        openJokerCard: jokerVisible ? toClientCard(round.openJokerCard, ctx) : null,
+        jokerHidden: !jokerVisible,
         drawPileCount: round.drawPile.length,
         discardTop: top ? toClientCard(top, ctx) : null,
         discardCount: round.discardPile.length,
@@ -86,8 +93,8 @@ function createViewFor(rules) {
         discards: (round.discardLog || []).map((e) => ({
           playerId: e.by, card: toClientCard(e.card, ctx), takenBy: e.takenBy || null,
         })),
-        // a printed joker on top of the open pile cannot be taken
-        discardPickable: Boolean(top) && !top.joker,
+        // a printed joker a player threw cannot be taken; one turned face up at the deal can
+        discardPickable: topIsPickable(round),
         // after a valid declaration: the shown (winning) hand is public, and who still has to submit
         show: inRound && round.phase === PHASE.SHOWING && round.show ? {
           declarerId: round.show.declarerId,

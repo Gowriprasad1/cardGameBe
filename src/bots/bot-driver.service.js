@@ -2,6 +2,7 @@
 
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
+const { topIsPickable, canSeeJoker } = require('../games/set/game-engine');
 
 /** The computer player's name. Fixed: nobody can change it, and no person can take it. */
 const BOT_NAME = 'mawa';
@@ -177,11 +178,12 @@ function fairInput(state, botId) {
   return {
     game: state.game,
     config: state.config,
-    openJokerRank: round.openJokerRank,
+    // closed joker: like a person, mawa only knows the joker once it has a LIFE
+    openJokerRank: canSeeJoker(state, botId) ? round.openJokerRank : null,
     deckCount: state.deckCount,
     hand: round.hands[botId].map((c) => ({ ...c })),
     top: top ? { ...top } : null,
-    topPickable: Boolean(top) && !top.joker,
+    topPickable: topIsPickable(round),
     turnsTaken: round.turnsTaken[botId],
     myScore: state.players[botId].score,
     oneCardToWinFeature: state.game === 'SET',

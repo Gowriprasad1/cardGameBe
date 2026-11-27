@@ -23,7 +23,7 @@ The second game on the platform. It reuses everything except the rules: rooms, s
 
 ## Turn
 
-Draw one card (closed pile or the top of the open pile), arrange, discard one. **A printed joker thrown on the open pile cannot be picked up** (cards of the wild-joker number can). Timers, auto-play, auto-drop and reconnection work as in SET Game.
+Draw one card (closed pile or the top of the open pile), arrange, discard one. **A printed joker a player throws on the open pile cannot be picked up** (cards of the wild-joker number can). A printed joker turned face up at the deal can be taken. Timers, auto-play, auto-drop and reconnection work as in SET Game.
 
 ## Showing (declaring)
 
@@ -44,6 +44,8 @@ Computed by the server, always with the arrangement that is best for the player:
 | A pure sequence and a second sequence | Every sequence and set is free. The rest counts |
 
 Card values: A, K, Q, J, 10 = 10; 2 to 9 face value; **jokers and wild-joker-number cards = 0**. Nobody counts more than **80** in one round (`maxRoundPenalty`).
+
+A player whose hand was already complete (all valid melds) but who did not show first counts **2** (`completeHandPenalty`), never 0 like the winner.
 
 Examples (all tested): pure sequence + second sequence + sets with K, Q, 3, 2 left = 25. No pure sequence = capped at 80. Pure 4-5-6, sets of 7s and 9s and K, Q, 3, 2 left (no second sequence) = 73.
 

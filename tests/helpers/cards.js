@@ -147,12 +147,14 @@ function setDrawTop(state, token) {
 }
 
 /** Put a specific card on top of the open (discard) pile, swapping with the current top. */
-function setDiscardTop(state, token) {
+function setDiscardTop(state, token, { thrownBy } = {}) {
   const target = card(token);
   const r = state.round;
   const topIndex = r.discardPile.length - 1;
   const { zone, index } = findCard(state, target.id);
   [zone[index], r.discardPile[topIndex]] = [r.discardPile[topIndex], zone[index]];
+  // thrownBy: the card got there because that player threw it (not turned face up at the deal)
+  if (thrownBy) r.discardLog.push({ by: thrownBy, card: r.discardPile[topIndex], takenBy: null });
 }
 
 /**
@@ -164,6 +166,8 @@ function scenario({ n = 3, seed = 7, config = {}, openJoker = 'A', hands = {}, c
   const s = structuredClone(state);
   setOpenJoker(s, openJoker);
   rigHands(s, hands);
+  // closed joker: who has seen it was worked out from the dealt cards; the rigged hands decide anew on the next action
+  s.round.jokerSeen = {};
   if (current) s.round.currentPlayerId = current;
   return s;
 }

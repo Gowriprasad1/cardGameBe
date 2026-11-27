@@ -146,7 +146,7 @@ test('create room: unique code, creator is host in seat 0, shown in waiting room
 
   const preview = await srv.api('GET', `/api/rooms/${roomCode}`);
   assert.deepEqual(preview.json.data, {
-    roomCode, gameType: 'SET', status: 'waiting', playerCount: 1, maxPlayers: 5, eliminationPoints: 201, joinable: true,
+    roomCode, gameType: 'SET', status: 'waiting', playerCount: 1, maxPlayers: 5, eliminationPoints: 201, jokerMode: 'open', joinable: true,
   });
   const me = await srv.api('GET', '/api/me', { token: host.token });
   assert.equal(me.json.data.activeRoomCode, roomCode);

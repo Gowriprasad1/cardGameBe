@@ -17,7 +17,8 @@ and never handed out, so nobody can play as mawa.
 - **Same information as a person.** mawa decides from exactly what a person in
   its seat can see: its own 13 or 14 cards, the top card of the open pile, the
   face-up joker number, the settings, the number of decks, its own score and
-  turns. It never reads anybody else's cards or the closed pile. This boundary
+  turns. It never reads anybody else's cards or the closed pile. With a
+  closed joker it is told the joker only once it has a LIFE, like a person. This boundary
   is one function, `fairInput()` in `backend/src/bots/bot-driver.service.js`,
   and a test checks that nothing else gets through.
 - **Same rules and timer.** Every move mawa makes goes through the same server

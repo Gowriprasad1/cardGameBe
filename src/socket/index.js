@@ -91,15 +91,15 @@ function attachSocket(httpServer, container) {
     const game = (action, requestId) => gameSessions.perform(currentRoom(), user.id, action, requestId);
 
     // ---- room ----
-    on('create-room', schemas.createRoom, async ({ gameType, points }) => {
-      const result = await rooms.createRoom(user, gameType, { eliminationPoints: points });
+    on('create-room', schemas.createRoom, async ({ gameType, points, jokerMode }) => {
+      const result = await rooms.createRoom(user, gameType, { eliminationPoints: points, jokerMode });
       socket.join(`room:${result.roomCode}`);
       return result;
     });
 
     // single player: a room with mawa, the computer, started at once
-    on('create-solo-room', schemas.createRoom, async ({ gameType, points }) => {
-      const result = await rooms.createSoloRoom(user, gameType, { eliminationPoints: points });
+    on('create-solo-room', schemas.createRoom, async ({ gameType, points, jokerMode }) => {
+      const result = await rooms.createSoloRoom(user, gameType, { eliminationPoints: points, jokerMode });
       socket.join(`room:${result.roomCode}`);
       return result;
     });

@@ -211,7 +211,7 @@ test('drops cost 20 then 40, and a player is out when the room limit is reached'
 test('a printed joker thrown on the open pile cannot be taken', () => {
   const state = scenario({ game: 'RUMMY', n: 2 });
   const p = state.round.currentPlayerId;
-  setDiscardTop(state, 'JK1');
+  setDiscardTop(state, 'JK1', { thrownBy: state.seatOrder.find((id) => id !== p) });
   assert.throws(() => act(state, { type: 'draw', playerId: p, source: 'discard' }), (e) => e.code === 'JOKER_NOT_PICKABLE');
   assert.equal(act(state, { type: 'draw', playerId: p, source: 'draw' }).state.round.hands[p].length, 14);
 });

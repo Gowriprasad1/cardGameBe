@@ -118,7 +118,7 @@ test('1 CARD TO WIN is refused in Rummy, and a printed joker on the open pile ca
     const refused = await actor.client.emit('one-card-to-win', { requestId: rid(), active: true });
     assert.equal(refused.error.code, 'ONE_CARD_NOT_ELIGIBLE');
 
-    setDiscardTop(live().state, 'JK1'); // a printed joker lands on top of the open pile
+    setDiscardTop(live().state, 'JK1', { thrownBy: actor === a ? b.userId : a.userId }); // another player threw a printed joker
     const take = await actor.client.emit('draw-card', { requestId: rid(), source: 'discard' });
     assert.equal(take.error.code, 'JOKER_NOT_PICKABLE');
     assert.equal((await actor.client.emit('draw-card', { requestId: rid(), source: 'draw' })).ok, true);

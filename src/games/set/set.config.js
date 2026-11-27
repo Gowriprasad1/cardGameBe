@@ -22,6 +22,8 @@ const DEFAULT_CONFIG = Object.freeze({
   invalidDeclarationPenalty: 40,
   invalidDeclarationPolicy: 'remove-declarer', // 'remove-declarer' | 'continue-declarer' | 'end-round'
   openJokerMode: 'rank',
+  // 'open': everyone sees the open joker. 'closed': a player sees it only once they have a LIFE
+  jokerMode: 'open',
   openJokerNaturalInOwnRank: false,
   minNaturalInJokerGroup: 1, // with a LIFE, 1 natural card + 2 jokers is a valid set
   jokerInLifeGroup: 'extra-only',
@@ -29,6 +31,8 @@ const DEFAULT_CONFIG = Object.freeze({
   noLifeHandPolicy: 'unmatched-only', // 'unmatched-only' (count only cards outside valid sets) | 'all-cards'
   unmatchedJokerValue: 0,
   deadJokerValue: 2, // a joker is worth this when the hand has no LIFE (jokers only work with a LIFE)
+  // a player whose cards were all in sets but who did not declare in time counts this, never 0 like the winner
+  completeHandPenalty: 2,
   maxRoundPenalty: null,
   cardValues: Object.freeze({
     A: 10, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, J: 10, Q: 10, K: 10,
@@ -45,6 +49,7 @@ const DEFAULT_CONFIG = Object.freeze({
 const ENUMS = {
   invalidDeclarationPolicy: ['remove-declarer', 'continue-declarer', 'end-round'],
   openJokerMode: ['rank'],
+  jokerMode: ['open', 'closed'],
   lifeRule: ['exactly', 'at-least'],
   jokerInLifeGroup: ['extra-only'],
   scoringObjective: ['min-points', 'max-matched'],
@@ -88,6 +93,7 @@ function resolveConfig(overrides = {}) {
   requireInt(config, 'minNaturalInJokerGroup', 1, 2);
   requireInt(config, 'unmatchedJokerValue', 0);
   requireInt(config, 'deadJokerValue', 0);
+  requireInt(config, 'completeHandPenalty', 0);
   requireInt(config, 'turnTimerSeconds', 0);
   requireInt(config, 'autoDropAfterTimeouts', 1);
   requireInt(config, 'reconnectGraceSeconds', 0);

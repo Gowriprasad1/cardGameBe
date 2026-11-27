@@ -66,6 +66,7 @@ class RoomService {
       playerCount: room.players.length,
       maxPlayers: room.maxPlayers,
       eliminationPoints: this.#points(room),
+      jokerMode: (room.config && room.config.jokerMode) || 'open',
       joinable: room.status === 'waiting' && room.players.length < room.maxPlayers,
     };
   }
@@ -80,6 +81,7 @@ class RoomService {
       minPlayers: MIN_PLAYERS,
       maxPlayers: room.maxPlayers,
       eliminationPoints: this.#points(room),
+      jokerMode: (room.config && room.config.jokerMode) || 'open',
       playerCount: room.players.length,
       players: room.players
         .slice()
@@ -98,12 +100,16 @@ class RoomService {
 
   // ---- commands ------------------------------------------------------------
 
-  createRoom(user, gameType = 'SET', { eliminationPoints = DEFAULT_ELIMINATION } = {}) {
+  createRoom(user, gameType = 'SET', { eliminationPoints = DEFAULT_ELIMINATION, jokerMode = 'open' } = {}) {
     this.registry.get(gameType);
     if (!ELIMINATION_CHOICES.includes(eliminationPoints)) {
       return Promise.reject(appError('VALIDATION_FAILED', { field: 'points', reason: `must be one of ${ELIMINATION_CHOICES.join(', ')}` }));
     }
-    const config = { eliminationThreshold: eliminationPoints };
+    if (!['open', 'closed'].includes(jokerMode)) {
+      return Promise.reject(appError('VALIDATION_FAILED', { field: 'jokerMode', reason: 'must be open or closed' }));
+    }
+    // closed joker is a SET Game setting (it hinges on the LIFE); Rummy always shows its wild joker
+    const config = { eliminationThreshold: eliminationPoints, ...(gameType === 'SET' && jokerMode === 'closed' ? { jokerMode } : {}) };
     return this.queue.run(`user:${user.id}`, async () => {
       this.#assertFree(user.id);
       for (let attempt = 0; attempt < 5; attempt += 1) {

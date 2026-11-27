@@ -122,15 +122,36 @@ test('the server tells the client when the button may be used', () => {
 // Rule 3: a printed joker on the open pile cannot be taken
 // ---------------------------------------------------------------------------
 
-test('a printed joker on top of the open pile cannot be picked up; the closed pile still works', () => {
+test('a printed joker a player threw on the open pile cannot be picked up; the closed pile still works', () => {
   const state = scenario({ n: 2, openJoker: '5' });
   const p = state.round.currentPlayerId;
-  setDiscardTop(state, 'JK1');
+  setDiscardTop(state, 'JK1', { thrownBy: state.seatOrder.find((id) => id !== p) });
   assert.equal(viewFor(state, p).round.discardPickable, false);
   assert.throws(() => act(state, { type: 'draw', playerId: p, source: 'discard' }), (e) => e.code === 'JOKER_NOT_PICKABLE');
   const { state: s } = act(state, { type: 'draw', playerId: p, source: 'draw' });
   assert.equal(s.round.hands[p].length, 14);
   assert.equal(s.round.discardPile.at(-1).id, 'D1-JK-1', 'the joker stays where it was');
+});
+
+test('a printed joker turned face up at the deal CAN be taken by the first player', () => {
+  const state = scenario({ n: 3, openJoker: '5' });
+  const p = state.round.currentPlayerId;
+  setDiscardTop(state, 'JK1'); // the first open card of the round, nobody threw it
+  assert.equal(viewFor(state, p).round.discardPickable, true);
+  const { state: s } = act(state, { type: 'draw', playerId: p, source: 'discard' });
+  assert.ok(s.round.hands[p].some((c) => c.id === 'D1-JK-1'));
+});
+
+test('a dealt printed joker left on the pile is still takeable until somebody throws a card on it', () => {
+  const state = scenario({ n: 3, openJoker: '5' });
+  const p = state.round.currentPlayerId;
+  setDiscardTop(state, 'JK1');
+  setDrawTop(state, '2S');
+  let s = act(state, { type: 'draw', playerId: p, source: 'draw' }).state;
+  // the first player throws the drawn card on top: the joker is now buried
+  s = act(s, { type: 'discard', playerId: p, cardId: 'D1-S-2' }).state;
+  assert.equal(s.round.discardPile.at(-1).id, 'D1-S-2');
+  assert.equal(viewFor(s, s.round.currentPlayerId).round.discardPickable, true);
 });
 
 test('a card of the open-joker number CAN be picked up from the open pile', () => {

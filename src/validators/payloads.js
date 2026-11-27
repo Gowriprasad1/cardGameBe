@@ -15,6 +15,8 @@ module.exports = {
     gameType: { type: 'enum', values: ['SET', 'RUMMY'], default: 'SET' },
     // points at which a player is out; the host picks one when creating the room
     points: { type: 'enum', values: [101, 201, 301], default: 201 },
+    // SET only: 'closed' shows the open joker to a player only once they have a LIFE
+    jokerMode: { type: 'enum', values: ['open', 'closed'], default: 'open' },
   },
   joinRoom: { roomCode },
   resume: { roomCode: { ...roomCode, optional: true } },

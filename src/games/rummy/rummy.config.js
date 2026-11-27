@@ -25,6 +25,8 @@ const DEFAULT_CONFIG = Object.freeze({
     A: 10, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, J: 10, Q: 10, K: 10,
   }),
   jokerValue: 0, // printed jokers and wild-joker cards count nothing
+  // a player whose hand was already complete but who did not show in time counts this, never 0 like the winner
+  completeHandPenalty: 2,
   turnTimerSeconds: 60,
   autoDropAfterTimeouts: 3,
   reconnectGraceSeconds: 90,
@@ -70,6 +72,7 @@ function resolveConfig(overrides = {}) {
   requireInt(config, 'minNaturalInMeld', 1, 3);
   requireInt(config, 'maxSetSize', 3, 4);
   requireInt(config, 'jokerValue', 0);
+  requireInt(config, 'completeHandPenalty', 0);
   requireInt(config, 'turnTimerSeconds', 0);
   requireInt(config, 'autoDropAfterTimeouts', 1);
   requireInt(config, 'reconnectGraceSeconds', 0);

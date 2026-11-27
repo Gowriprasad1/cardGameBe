@@ -82,6 +82,8 @@ Card values (configurable): 2–10 face value, J/Q/K/A = 10.
 
 After a valid declaration each other player still in the round is counted. **Only cards that are not in a valid set count**; cards inside valid sets are worth 0. The counter always finds the best grouping for the player (fewest points left, `scoringObjective: "min-points"`).
 
+**A complete hand that was not declared counts 2.** If a player's cards were all in sets (a winning hand) but somebody else declared first, that player counts `completeHandPenalty` (2 points), never 0: only the declarer finishes the round on 0. The round result marks them `completeHand: true` (shown as "Complete, not declared").
+
 **What the LIFE is for.** The LIFE decides whether jokers work:
 
 - **With a LIFE** (exactly 4 natural cards of one rank) jokers are usable: one natural card plus two jokers is a valid set, a joker next to a pair is a set, and so on. Jokers used in groups count 0.
@@ -129,7 +131,15 @@ Details:
 
 ## 8b. Printed jokers on the open pile
 
-A printed joker that is thrown onto the open pile **cannot be taken** by the next player (the server answers `JOKER_NOT_PICKABLE`, and the view says `discardPickable: false`). A card of the open-joker number on the open pile **can** be taken. The closed pile is always available.
+A printed joker that a player **throws** onto the open pile **cannot be taken** by the next player (the server answers `JOKER_NOT_PICKABLE`, and the view says `discardPickable: false`). The card **turned face up at the deal** is different: if it is a printed joker, the first player (or anyone after, while it is still on top) **can** take it. The server tells the two apart with the round's discard history: the dealt card has no entry there. A card of the open-joker number on the open pile **can** be taken. The closed pile is always available.
+
+## 8c. Closed joker (room setting)
+
+When creating a SET Game room the host picks **Joker** in the Settings popup: **Open joker** (the default, everyone sees the joker card) or **Closed joker** (`jokerMode: "closed"`).
+
+With a closed joker the joker card stays face down. **A player sees it only once they have a LIFE**: four cards of one number in their hand (printed jokers aside; four cards of the joker number count too, since the player cannot tell). From then on they keep seeing it for the rest of the round, even if they later break that LIFE. The server tells them once with a private `joker-revealed` event. Once somebody declares, everyone sees it.
+
+Until then the server sends that player no trace of the joker: no rank, no card, and no `isOpenJoker` flag on any card (their own hand, the open pile, the discard history and every event). mawa follows the same rule. Scoring and every rule are unchanged: the joker number is wild for everyone, seen or not. Indian Rummy has no closed joker.
 
 ## 9. Full configuration (defaults)
 
@@ -154,6 +164,8 @@ A printed joker that is thrown onto the open pile **cannot be taken** by the nex
   "noLifeHandPolicy": "unmatched-only",
   "unmatchedJokerValue": 0,
   "deadJokerValue": 2,
+  "completeHandPenalty": 2,
+  "jokerMode": "open",
   "maxRoundPenalty": null,
   "cardValues": { "A": 10, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "J": 10, "Q": 10, "K": 10 },
   "turnTimerSeconds": 60,

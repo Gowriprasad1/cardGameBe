@@ -2,6 +2,7 @@
 
 const { appError } = require('../constants/errors');
 const { GamePersistence } = require('./game-persistence.service');
+const { canSeeJoker, hideJoker } = require('../games/set/game-engine');
 
 const PROCESSED_LIMIT = 500;
 
@@ -216,11 +217,15 @@ class GameSessionService {
       this.#arm(live, plan, deadlineAt);
     }
 
+    // closed joker: players without a LIFE get every event with the open joker taken out
+    const closed = state.config.jokerMode === 'closed';
+    const forUser = (userId, payload) => (closed && !canSeeJoker(state, userId) ? hideJoker(payload) : payload);
     for (const event of events) {
       let { payload } = event;
       if (event.name === 'player-turn') payload = { ...payload, seconds: plan && plan.kind === 'turn' ? plan.seconds : 0, deadlineAt };
-      if (event.to === 'all') this.emitter.toRoom(code, event.name, payload);
-      else this.emitter.toUser(event.to, event.name, payload);
+      if (event.to !== 'all') this.emitter.toUser(event.to, event.name, forUser(event.to, payload));
+      else if (!closed) this.emitter.toRoom(code, event.name, payload);
+      else for (const p of room.players) this.emitter.toUser(p.userId, event.name, forUser(p.userId, payload));
     }
     // players who pressed Exit are gone: they get no more updates
     for (const p of room.players) {

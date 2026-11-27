@@ -295,6 +295,44 @@ test('valid declaration: declarer wins, opponents pay for unmatched cards only',
   assert.deepEqual([decl.payload.valid, decl.payload.penalty], [true, 0]);
 });
 
+test('a player whose hand was already complete but who did not declare counts 2, never 0 like the winner', () => {
+  const state = scenario({
+    n: 3,
+    hands: {
+      p1: VALID_HAND,
+      p2: '5H 5D 5C 5S 6H 6D 6C 2H 2D 2C 3H 3D 3C', // LIFE 5555 + 666 + 222 + 333: done, not declared
+      p3: '4H 4D 4C 4S QH QD QC JH JD 3S 9H/2 9D/2 KS',
+    },
+    openJoker: 'A',
+  });
+  state.round.currentPlayerId = 'p1';
+  const { state: s1, events } = act(state, { type: 'declare', playerId: 'p1', groups: groupIds(VALID_GROUPS) });
+  assert.equal(s1.players.p1.score, 0, 'only the declarer is on 0');
+  assert.equal(s1.players.p2.score, 2);
+  const done = events.find((e) => e.name === 'round-completed').payload;
+  const p2 = done.results.find((r) => r.playerId === 'p2');
+  assert.deepEqual([p2.penalty, p2.completeHand], [2, true]);
+  assert.equal(done.results.find((r) => r.playerId === 'p3').completeHand, false);
+});
+
+test('Rummy: a complete hand that was not shown also counts 2', () => {
+  const state = scenario({
+    game: 'RUMMY',
+    n: 2,
+    hands: {
+      p1: '4H 5H 6H 7S 8S 9S 9D 9C 9H 2D 2C 2S 2H',
+      p2: '4D 5D 6D 6C 7C 8C JH JD JC 3H 3D 3C 3S',
+    },
+    openJoker: 'K',
+  });
+  state.round.currentPlayerId = 'p1';
+  const groups = groupIds(['4H 5H 6H', '7S 8S 9S', '9D 9C 9H', '2D 2C 2S 2H']);
+  const { state: s1 } = act(state, { type: 'declare', playerId: 'p1', groups });
+  assert.equal(s1.round.result.winnerId, 'p1');
+  assert.equal(s1.players.p1.score, 0);
+  assert.equal(s1.players.p2.score, 2);
+});
+
 test('declaring is also possible right after discarding (before ending the turn)', () => {
   const state = scenario({ n: 2, hands: { p1: VALID_HAND, p2: JUNK_HAND }, openJoker: 'A' });
   state.round.currentPlayerId = 'p1';

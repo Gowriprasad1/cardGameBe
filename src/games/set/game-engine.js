@@ -56,6 +56,76 @@ function toClientCard(card, ctx) {
   };
 }
 
+/**
+ * Can the open pile's top card be taken? Yes, unless it is a printed joker a
+ * player threw there. The card turned face up at the deal has no entry in the
+ * discard history, so a printed joker dealt face up can be taken.
+ */
+function topIsPickable(round) {
+  const top = round.discardPile[round.discardPile.length - 1];
+  if (!top) return false;
+  if (!top.joker) return true;
+  if (!round.discardLog) return false; // a round saved before the history existed: the old rule
+  return !round.discardLog.some((e) => e.card.id === top.id && !e.takenBy);
+}
+
+// ---------------------------------------------------------------------------
+// closed joker: the open joker is shown only to players who have a LIFE
+// ---------------------------------------------------------------------------
+
+/**
+ * Does this hand hold a LIFE as the player sees it: 4 cards of one number,
+ * printed jokers aside? (A player who cannot see the joker cannot tell that
+ * their four cards are of the joker number, so those unlock it too and the
+ * player then learns it.)
+ */
+function looksLikeLife(hand, config) {
+  const counts = new Map();
+  for (const c of hand) if (!c.joker) counts.set(c.rank, (counts.get(c.rank) || 0) + 1);
+  return [...counts.values()].some((n) => n >= config.lifeMinNatural);
+}
+
+/**
+ * May this player see the open joker now? Always in 'open' mode. In 'closed'
+ * mode: once they have had a LIFE this round (it stays seen), and for
+ * everyone once somebody has declared or the round is over.
+ */
+function canSeeJoker(state, playerId) {
+  if (state.config.jokerMode !== 'closed') return true;
+  const { round } = state;
+  if (!round || state.stage !== STAGE.IN_ROUND || round.result || round.phase === PHASE.SHOWING) return true;
+  return Boolean(round.jokerSeen && round.jokerSeen[playerId]);
+}
+
+/** Closed joker: mark players who now hold a LIFE, and tell each one the joker once. */
+function refreshJokerSeen(state, events) {
+  const { round, config } = state;
+  if (config.jokerMode !== 'closed' || !round || round.result) return;
+  if (!round.jokerSeen) round.jokerSeen = {};
+  const ctx = ctxOf(state);
+  for (const id of round.order) {
+    if (round.jokerSeen[id] || round.playerStatus[id] !== ROUND_STATUS.PLAYING) continue;
+    if (!looksLikeLife(round.hands[id], config)) continue;
+    round.jokerSeen[id] = true;
+    emit(events, 'joker-revealed', {
+      roundNo: round.no, openJokerRank: round.openJokerRank, openJokerCard: toClientCard(round.openJokerCard, ctx),
+    }, id);
+  }
+}
+
+/** A copy of an event payload with every trace of the open joker removed. */
+function hideJoker(value) {
+  if (Array.isArray(value)) return value.map(hideJoker);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (k === 'openJokerRank' || k === 'openJokerCard') out[k] = null;
+    else if (k === 'isOpenJoker') out[k] = false;
+    else out[k] = hideJoker(v);
+  }
+  return out;
+}
+
 function rankIndex(card) {
   return card.joker ? 99 : RANKS.indexOf(card.rank);
 }
@@ -206,6 +276,7 @@ function createEngine(rules) {
       timeouts: {},
       oneCardToWin: {},
       penalties: {},
+      jokerSeen: {}, // closed joker: who has had a LIFE this round and so sees the open joker
       currentPlayerId: firstId,
       phase: PHASE.AWAITING_DRAW,
       turnNo: 1,
@@ -233,6 +304,7 @@ function createEngine(rules) {
       handCounts: Object.fromEntries(eligible.map((id) => [id, round.hands[id].length])),
     });
     for (const id of eligible) emitHand(state, id, events);
+    refreshJokerSeen(state, events);
     emit(events, 'player-turn', {
       roundNo: round.no, turnNo: round.turnNo, playerId: firstId, seconds: state.config.turnTimerSeconds,
     });
@@ -261,8 +333,9 @@ function createEngine(rules) {
       card = round.drawPile.pop();
     } else {
       if (round.discardPile.length === 0) throw gameError('PILE_EMPTY');
-      // A printed joker thrown on the open pile cannot be picked up. Cards of the open-joker number can.
-      if (round.discardPile[round.discardPile.length - 1].joker) throw gameError('JOKER_NOT_PICKABLE');
+      // A printed joker a player threw on the open pile cannot be picked up. The card turned
+      // face up at the deal can, even a printed joker. Cards of the open-joker number always can.
+      if (!topIsPickable(round)) throw gameError('JOKER_NOT_PICKABLE');
       card = round.discardPile.pop();
       const logged = (round.discardLog || []).findLast((e) => e.card.id === card.id && !e.takenBy);
       if (logged) logged.takenBy = playerId;
@@ -589,7 +662,15 @@ function createEngine(rules) {
       if (round.penalties[id]) continue;
       if (scoreRemaining && round.playerStatus[id] === ROUND_STATUS.PLAYING) {
         const scored = rules.scoreHand(round.hands[id], ctx);
-        round.penalties[id] = { reason: scored.reason, penalty: scored.points, unmatchedIds: scored.unmatchedIds };
+        // Every card was already in sets but the player did not declare in time: they still
+        // count a little (2), so the one who declared first is the only one on 0.
+        const complete = scored.points === 0 && (config.completeHandPenalty || 0) > 0;
+        round.penalties[id] = {
+          reason: scored.reason,
+          penalty: complete ? config.completeHandPenalty : scored.points,
+          unmatchedIds: scored.unmatchedIds,
+          ...(complete ? { completeHand: true } : {}),
+        };
         reveals[id] = {
           cards: round.hands[id].map((c) => toClientCard(c, ctx)),
           groups: scored.groups.map((g) => ({ cardIds: g.cardIds, isLife: Boolean(g.isLife), kind: g.kind || null })),
@@ -609,6 +690,7 @@ function createEngine(rules) {
       playerId: id,
       penalty: round.penalties[id].penalty,
       reason: round.penalties[id].reason,
+      completeHand: Boolean(round.penalties[id].completeHand),
       roundStatus: round.playerStatus[id],
       cumulativeScore: state.players[id].score,
       eliminated: newlyEliminated.includes(id),
@@ -732,6 +814,7 @@ function createEngine(rules) {
       }
     }
 
+    refreshJokerSeen(next, events);
     next.version += 1;
     verifyRoundIntegrity(next);
     return { state: next, events };
@@ -766,5 +849,5 @@ const setEngine = createEngine(require('./set-rules'));
 module.exports = {
   createEngine,
   ...setEngine,
-  scoreboardOf, toClientCard, verifyRoundIntegrity, buildDecks,
+  scoreboardOf, toClientCard, verifyRoundIntegrity, buildDecks, topIsPickable, canSeeJoker, hideJoker,
 };
