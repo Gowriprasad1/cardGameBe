@@ -82,6 +82,10 @@ function createViewFor(rules) {
         drawPileCount: round.drawPile.length,
         discardTop: top ? toClientCard(top, ctx) : null,
         discardCount: round.discardPile.length,
+        // the open pile's history this round: who threw which card, and who picked it up again
+        discards: (round.discardLog || []).map((e) => ({
+          playerId: e.by, card: toClientCard(e.card, ctx), takenBy: e.takenBy || null,
+        })),
         // a printed joker on top of the open pile cannot be taken
         discardPickable: Boolean(top) && !top.joker,
         // after a valid declaration: the shown (winning) hand is public, and who still has to submit

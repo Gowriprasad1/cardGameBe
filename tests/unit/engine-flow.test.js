@@ -605,3 +605,27 @@ test('an eliminated player gets no hand in the next round view', () => {
   assert.equal(viewFor(state, p).me, null);
   assert.equal(viewFor(state, p).players.find((x) => x.playerId === p).status, 'eliminated');
 });
+
+test('the open pile history: everyone sees who threw which card, and who picked one up again', () => {
+  const state = scenario({ n: 3 });
+  const p1 = state.round.currentPlayerId;
+  const s1 = act(state, { type: 'draw', playerId: p1, source: 'draw' }).state;
+  const thrown = anyCard(s1, p1);
+  const s2 = act(s1, { type: 'discard', playerId: p1, cardId: thrown }).state;
+  const p2 = s2.round.currentPlayerId;
+
+  const others = Object.keys(s2.players).filter((id) => id !== p1);
+  for (const viewer of [p1, ...others]) {
+    const { discards } = viewFor(s2, viewer).round;
+    assert.equal(discards.length, 1);
+    assert.deepEqual([discards[0].playerId, discards[0].card.id, discards[0].takenBy], [p1, thrown, null]);
+  }
+
+  // the next player takes it back from the open pile: the history says so
+  const s3 = act(s2, { type: 'draw', playerId: p2, source: 'discard' }).state;
+  const after = viewFor(s3, p1).round.discards;
+  assert.deepEqual([after[0].card.id, after[0].takenBy], [thrown, p2]);
+  // only cards that were thrown are in it, never anybody's hand
+  const hands = Object.entries(s3.round.hands).flatMap(([, h]) => h.map((c) => c.id)).filter((id) => id !== thrown);
+  for (const id of hands) assert.ok(!JSON.stringify(after).includes(`"${id}"`));
+});

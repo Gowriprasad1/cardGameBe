@@ -24,11 +24,16 @@ function decide(state, id, bot) {
 }
 
 function assertNoLeaks(state) {
+  // a card picked up from the open pile was face up and everyone saw it taken: public, not a leak
+  const takenOpenly = new Set((state.round.discardLog || []).filter((e) => e.takenBy).map((e) => e.card.id));
   for (const viewer of state.seatOrder) {
     const json = JSON.stringify(viewFor(state, viewer));
     for (const other of state.seatOrder) {
       if (other === viewer || !state.round.hands[other]) continue;
-      for (const c of state.round.hands[other]) assert.ok(!json.includes(`"${c.id}"`), 'opponent card leaked');
+      for (const c of state.round.hands[other]) {
+        if (takenOpenly.has(c.id)) continue;
+        assert.ok(!json.includes(`"${c.id}"`), 'opponent card leaked');
+      }
     }
     for (const c of state.round.drawPile) assert.ok(!json.includes(`"${c.id}"`), 'draw pile leaked');
   }

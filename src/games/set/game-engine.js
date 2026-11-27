@@ -196,6 +196,8 @@ function createEngine(rules) {
       openJokerCard: deal.openJokerCard,
       drawPile: deal.drawPile,
       discardPile: deal.discardPile,
+      // every card a player threw on the open pile this round, in order (public: everyone saw it land)
+      discardLog: [],
       hands: deal.hands,
       groups: {},
       order: eligible,
@@ -246,6 +248,8 @@ function createEngine(rules) {
     const top = round.discardPile.pop();
     round.drawPile = shuffle(round.discardPile, rng);
     round.discardPile = [top];
+    // the thrown cards went back into the closed pile: only the card still on top stays in the history
+    if (round.discardLog) round.discardLog = round.discardLog.filter((e) => e.card.id === top.id && !e.takenBy).slice(-1);
   }
 
   function doDraw(state, playerId, source, events, rng, { manual }) {
@@ -260,6 +264,8 @@ function createEngine(rules) {
       // A printed joker thrown on the open pile cannot be picked up. Cards of the open-joker number can.
       if (round.discardPile[round.discardPile.length - 1].joker) throw gameError('JOKER_NOT_PICKABLE');
       card = round.discardPile.pop();
+      const logged = (round.discardLog || []).findLast((e) => e.card.id === card.id && !e.takenBy);
+      if (logged) logged.takenBy = playerId;
     }
     round.hands[playerId].push(card);
     round.groups[playerId].push([card.id]);
@@ -293,6 +299,8 @@ function createEngine(rules) {
     if (index === -1) throw gameError('CARD_NOT_IN_HAND');
     const [card] = hand.splice(index, 1);
     round.discardPile.push(card);
+    if (!round.discardLog) round.discardLog = []; // a round saved before the history existed
+    round.discardLog.push({ by: playerId, card, takenBy: null });
     removeFromGroups(round, playerId, cardId);
     round.phase = PHASE.AWAITING_END_TURN;
 
