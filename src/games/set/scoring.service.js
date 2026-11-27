@@ -24,10 +24,12 @@ function cap(points, config) {
  *    card plus two jokers is a valid set, so the best grouping is found with the
  *    jokers helping (e.g. 4,4,4,4 + 8,8,8 + K + 2 jokers + 2,J,Q = K and the two
  *    jokers form a set, so only 2+J+Q = 22 count).
- *  - WITHOUT a LIFE the jokers cannot be used. The natural cards still form
- *    their valid sets and only the cards outside them count, plus every joker
- *    at config.deadJokerValue (2). Example: four sets of three + an 8 = 8;
- *    four sets of three + a joker = 2.
+ *  - WITHOUT a LIFE the jokers cannot join natural cards. The natural cards
+ *    still form their valid sets and only the cards outside them count. Three
+ *    or more jokers are a set of their own and count 0. One or two jokers count
+ *    config.deadJokerValue (2) each only when every natural card is in a set.
+ *    Examples: four sets of three + an 8 = 8; four sets of three + a joker = 2;
+ *    three sets + three jokers (kept apart or not) + 8 = 8.
  *
  * config.noLifeHandPolicy 'all-cards' (not the default) instead counts every
  * card of a hand that has no LIFE.
@@ -59,15 +61,20 @@ function scoreHand(hand, ctx) {
     const dead = hand.filter(isDeadJoker);
     const naturals = hand.filter((c) => !isDeadJoker(c));
     const partial = findBestArrangement(naturals, ctx, { objective: config.scoringObjective, requireLife: false });
-    // The jokers count only when they are all that is left: every natural card sits in a valid
-    // set, so the jokers are the only reason the hand is not complete (e.g. four sets + a joker = 2).
+    // A joker is worth 0. Three or more jokers (any kind) are a set of their own, so they never count.
+    // One or two jokers count deadJokerValue (2) each only when they are all that is left: every
+    // natural card sits in a valid set, so the missing LIFE is the only thing between this hand and a
+    // win (four sets + a joker = 2: not the same as the winner's 0).
     // With loose natural cards, only those cards count and the jokers are 0 (e.g. 5,5 + 2 jokers = 10).
-    const jokersCount = partial.unmatched.length === 0;
+    const jokerSet = dead.length >= config.minGroupSize;
+    const jokersCount = !jokerSet && partial.unmatched.length === 0;
+    const groups = partial.groups.map(toGroupSummary);
+    if (jokerSet) groups.push({ rank: null, cardIds: dead.map((c) => c.id), isLife: false });
     return {
       points: cap(partial.points + (jokersCount ? dead.length * config.deadJokerValue : 0), config),
       reason: PENALTY_REASON.NO_LIFE_HAND,
       hasLife: false,
-      groups: partial.groups.map(toGroupSummary),
+      groups,
       unmatchedIds: [...partial.unmatched, ...(jokersCount ? dead : [])].map((c) => c.id),
     };
   }

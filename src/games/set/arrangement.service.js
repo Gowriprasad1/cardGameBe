@@ -183,7 +183,10 @@ function solvePool(naturals, wilds, ctx, objective, requireLife) {
   });
 
   const spare = wilds.slice(wildIndex);
-  if (groups.length > 0) {
+  if (spare.length >= config.minGroupSize) {
+    // three or more spare jokers are a set of their own
+    groups.push({ rank: null, cards: spare, isLife: false });
+  } else if (groups.length > 0) {
     const target = groups.find((g) => g.isLife) || groups[0];
     target.cards.push(...spare);
   } else {

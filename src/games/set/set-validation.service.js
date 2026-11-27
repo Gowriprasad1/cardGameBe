@@ -15,8 +15,10 @@ const { qualifiesAsLife } = require('./life-validation.service');
 
 /**
  * Validate one normal group: at least 3 cards of one rank, where wild cards may
- * fill in as long as the group keeps at least `minNaturalInJokerGroup` (2)
- * natural cards. 5,5,Joker is valid; 5,Joker,Joker is not.
+ * fill in as long as the group keeps at least `minNaturalInJokerGroup` (1)
+ * natural card. 5,5,Joker and 5,Joker,Joker are valid.
+ * Three or more jokers on their own (printed or open-joker cards, any mix) are
+ * a valid set too.
  *
  * @param {import('./deck.service').Card[]} cards
  * @param {{config: object, openJokerRank: string}} ctx
@@ -33,7 +35,13 @@ function validateGroup(cards, ctx) {
   const candidateRanks = new Set(
     cards.filter((c) => !c.joker && canBeNatural(c, c.rank, ctx)).map((c) => c.rank),
   );
-  if (candidateRanks.size === 0) return invalid('ALL_WILD');
+  if (candidateRanks.size === 0) {
+    // only jokers: a set of its own (3 jokers, any kind), never a LIFE
+    if (cards.every((c) => canActAsWild(c, ctx))) {
+      return { valid: true, rank: null, naturalCount: 0, wildCount: cards.length, isLife: false, reason: null };
+    }
+    return invalid('ALL_WILD');
+  }
 
   let best = null;
   let sawWildOnlyMismatch = false;

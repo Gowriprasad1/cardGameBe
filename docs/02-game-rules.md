@@ -22,7 +22,7 @@ Free, points-based entertainment game. Points have no monetary value. There is n
 | B | LIFE (mandatory) | At least one group of **exactly 4 natural** cards of the same rank. A joker never counts toward LIFE, and a fifth card of that rank cannot join the LIFE (`lifeRule: "exactly"`). A group of 5 or more of one rank is still a valid ordinary set. *This replaces the original line "8,8,8,8,8 = LIFE"; set `lifeRule: "at-least"` to bring the old behaviour back.* |
 | C1 | Printed joker | Always a wildcard in normal groups. |
 | C2 | **Open Joker** | The revealed card's **rank** is the Open Joker rank. Every card of that rank is a wildcard (`openJokerMode: "rank"`), exactly like a printed joker. They are never natural, so they cannot form or complete LIFE. See the open question below. |
-| C3 | **Joker in groups** | Jokers only work once the hand has a LIFE (see section 6). With a LIFE, a normal group needs at least **1 natural** card (`minNaturalInJokerGroup: 1`): `5,5,Joker` and `K,Joker,Joker` are valid sets. Jokers alone are not a group. *(Earlier default was 2 natural cards; set `minNaturalInJokerGroup: 2` to restore it.)* |
+| C3 | **Joker in groups** | Jokers only work once the hand has a LIFE (see section 6). With a LIFE, a normal group needs at least **1 natural** card (`minNaturalInJokerGroup: 1`): `5,5,Joker` and `K,Joker,Joker` are valid sets. **Three or more jokers on their own** (printed or open-joker cards, any mix) are a valid set too, never a LIFE. *(Earlier default was 2 natural cards; set `minNaturalInJokerGroup: 2` to restore it.)* |
 | C4 | **Joker in a LIFE group** | A group with exactly 4 natural cards is LIFE. Any extra joker placed in it is allowed as a filler but is not counted toward LIFE (`jokerInLifeGroup: "extra-only"`). |
 | C5 | Joker reuse | A card belongs to exactly one group. |
 
@@ -52,7 +52,7 @@ Allowed only on the player's own turn while holding exactly 13 cards: either rig
 3. At least one LIFE (exactly 4 natural cards of one rank in one group).
 4. No joker counted toward LIFE.
 5. Every group has 3+ cards.
-6. Groups with jokers have at least 2 natural cards.
+6. Groups with jokers have at least 1 natural card, or are 3+ jokers on their own.
 
 **Valid:** declarer wins the round, scores 0. Every other player still in the round is scored (section 6).
 
@@ -85,7 +85,7 @@ After a valid declaration each other player still in the round is counted. **Onl
 **What the LIFE is for.** The LIFE decides whether jokers work:
 
 - **With a LIFE** (exactly 4 natural cards of one rank) jokers are usable: one natural card plus two jokers is a valid set, a joker next to a pair is a set, and so on. Jokers used in groups count 0.
-- **Without a LIFE** the jokers cannot be used. The natural cards still form their valid sets and only the cards outside those sets count. The jokers count **only when every natural card is in a valid set**: then each joker counts `deadJokerValue` (2 points), e.g. four sets + a joker = 2. If any natural card is left loose, only the loose cards count and the jokers count 0, e.g. three sets + 5,5 + two jokers = 10. A card of the Open Joker number is a joker too. Five or six cards of one number (two decks) still contain a LIFE: four of them are the LIFE and the extras can join another set. (`noLifeHandPolicy: "unmatched-only"`. The old "count every card of a no-LIFE hand" is still available as `"all-cards"`.)
+- **Without a LIFE** the jokers cannot join natural cards. The natural cards still form their valid sets and only the cards outside those sets count. A joker is worth 0, and **three or more jokers are a set of their own** (even if the player keeps them apart), so they never count. One or two jokers count **only when every natural card is in a valid set**: then each counts `deadJokerValue` (2 points), so the loser is not on 0 like the winner, e.g. four sets + a joker = 2. If any natural card is left loose, only the loose cards count and the jokers count 0, e.g. three sets + 5,5 + two jokers = 10. A card of the Open Joker number is a joker too. Five or six cards of one number (two decks) still contain a LIFE: four of them are the LIFE and the extras can join another set. (`noLifeHandPolicy: "unmatched-only"`. The old "count every card of a no-LIFE hand" is still available as `"all-cards"`.)
 
 Examples (all tested):
 
@@ -93,6 +93,7 @@ Examples (all tested):
 |---|---|
 | Four valid sets of three + one 8, no LIFE | **8** (the sets do not count) |
 | Four valid sets of three + one joker, no LIFE | **2** (the joker cannot be used without a LIFE) |
+| Three valid sets of three + three jokers (kept apart or together) + an 8, no LIFE | **8** (three jokers are a set) |
 | LIFE of four, one set of three, two jokers, and 2, K, J, Q | **22**: the jokers join the K as a set, 2 + J + Q count |
 | Five 9s, three 6s, five 2s | **2**: LIFE of four 2s, the five 9s as a normal set, one 2 left |
 

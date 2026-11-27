@@ -158,9 +158,18 @@ test('no LIFE: jokers cannot be used, so a leftover joker counts 2', () => {
   const score = scoreHand(cards('4H 4D 4C 5H 5D 5C 6H 6D 6C 9H 9D 9C JK1'), ctx('A'));
   assert.equal(score.points, 2);
   assert.deepEqual(score.unmatchedIds, ['D1-JK-1']);
-  // every dead joker counts, and a card of the open-joker number is a joker too
-  const two = scoreHand(cards('4H 4D 4C 5H 5D 5C 6H 6D 6C QH QD JK1 JK2'), ctx('Q'));
-  assert.equal(two.points, 8, 'JK1, JK2 and the two open-joker queens are four dead jokers: 4 x 2');
+  // a card of the open-joker number is a joker too; three or more jokers are a set of their own
+  const four = scoreHand(cards('4H 4D 4C 5H 5D 5C 6H 6D 6C QH QD JK1 JK2'), ctx('Q'));
+  assert.equal(four.points, 0, 'JK1, JK2 and the two open-joker queens are four jokers: a set, 0 points');
+  assert.deepEqual(four.unmatchedIds, []);
+  assert.ok(four.groups.some((g) => g.cardIds.length === 4 && g.rank === null), 'shown as a joker set');
+});
+
+test('no LIFE: three jokers count 0 even when kept apart; only loose natural cards count', () => {
+  const score = scoreHand(cards('4H 4D 4C 5H 5D 5C 6H 6D 6C 8S JK1 JK2 QH'), ctx('Q'));
+  assert.equal(score.hasLife, false);
+  assert.equal(score.points, 8, 'three sets + a joker set (2 printed, 1 open) + the 8: only the 8 counts');
+  assert.deepEqual(score.unmatchedIds, ['D1-S-8']);
 });
 
 test('no LIFE with loose cards: only the loose cards count, the jokers count 0', () => {
@@ -291,4 +300,16 @@ test('config validation rejects unknown keys and unsupported values', () => {
   assert.throws(() => resolveConfig({ invalidDeclarationPolicy: 'whatever' }), { code: 'INVALID_CONFIG' });
   assert.throws(() => resolveConfig({ cardsPerPlayer: 10 }), { code: 'INVALID_CONFIG' });
   assert.equal(resolveConfig({ eliminationThreshold: 101 }).eliminationThreshold, 101);
+});
+
+test('a LIFE, two sets and three jokers (any mix) kept as their own set is a valid declaration', () => {
+  for (const [jokers, open] of [['JK1 JK2 JK1/2', 'A'], ['JK1 9H 9D', '9'], ['JK1 JK2 9C', '9']]) {
+    const hand = `3H 3D 3C 3S 5H 5D 5C 7H 7D 7C ${jokers}`;
+    const r = declare(hand, ['3H 3D 3C 3S', '5H 5D 5C', '7H 7D 7C', jokers], ctx(open));
+    assert.equal(r.valid, true, `${jokers}: ${JSON.stringify(r.errors)}`);
+    // the computer player finds the same layout on its own
+    const best = scoreHand(cards(hand), ctx(open));
+    assert.equal(best.points, 0);
+    assert.ok(best.groups.some((g) => g.rank === null && g.cardIds.length === 3), 'the jokers are their own set');
+  }
 });

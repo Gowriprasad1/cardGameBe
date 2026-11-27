@@ -81,9 +81,12 @@ test('a single natural card with two jokers is a valid set (5,Joker,Joker)', () 
   assert.equal(validateGroup(cards('5H JK1 JK2'), ctx()).wildCount, 2);
 });
 
-test('jokers alone are not a group, and the stricter 2-natural rule is available as an option', () => {
-  assert.equal(valid('JK1 JK2 JK1/2'), false);
-  assert.equal(validateGroup(cards('JK1 JK2 JK1/2'), ctx()).reason, 'ALL_WILD');
+test('three or more jokers (printed or open, any mix) are a set; two jokers alone are not; the stricter 2-natural rule is an option', () => {
+  assert.equal(valid('JK1 JK2 JK1/2'), true, 'three printed jokers');
+  assert.equal(valid('JK1 9H 9D', ctx('9')), true, 'one printed joker and two open jokers (9 is the open joker)');
+  assert.equal(valid('JK1 JK2 9C', ctx('9')), true, 'two printed jokers and one open joker');
+  assert.equal(validateGroup(cards('JK1 JK2 JK1/2'), ctx()).isLife, false, 'never a LIFE');
+  assert.equal(valid('JK1 JK2'), false, 'too small');
   const strict = ctx('A', { minNaturalInJokerGroup: 2 });
   assert.equal(valid('5H JK1 JK2', strict), false);
   assert.equal(validateGroup(cards('5H JK1 JK2'), strict).reason, 'NOT_ENOUGH_NATURAL_CARDS');
@@ -112,7 +115,8 @@ test('an open-joker rank card can replace a card in a normal group', () => {
 test('openJokerNaturalInOwnRank lets the open-joker rank form its own group', () => {
   const strict = ctx('9');
   const relaxed = ctx('9', { openJokerNaturalInOwnRank: true });
-  assert.equal(valid('9H 9D 9C 9S', strict), false);
+  assert.equal(valid('9H 9D 9C 9S', strict), true, 'four open jokers: a joker set');
+  assert.equal(life('9H 9D 9C 9S', strict), false, 'but never a LIFE');
   assert.equal(valid('9H 9D 9C 9S', relaxed), true);
   assert.equal(life('9H 9D 9C 9S', relaxed), true);
 });
